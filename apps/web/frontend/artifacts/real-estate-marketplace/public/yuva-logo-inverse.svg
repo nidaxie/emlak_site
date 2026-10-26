@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="284" height="64" viewBox="0 0 284 64" fill="none">
+  <title>YUVA</title>
+  <path d="M8 56V8H56V16H16V40H48V32H56V56H8Z" fill="#F6F2E9"/>
+  <g fill="none" stroke="#F6F2E9" stroke-width="7" stroke-linecap="square" stroke-linejoin="round">
+    <path d="M76 14L94 32L112 14M94 32V52"/>
+    <path d="M130 14V36C130 57 162 57 162 36V14"/>
+    <path d="M180 14L198 52L216 14"/>
+    <path d="M232 52L250 14L268 52M239 38H261"/>
+  </g>
+</svg>

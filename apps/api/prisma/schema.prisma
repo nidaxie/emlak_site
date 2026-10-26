@@ -1,0 +1,344 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  USER
+  AGENT
+  ADMIN
+}
+
+enum ApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model User {
+  id                   String             @id @default(uuid()) @db.Uuid
+  email                String             @unique
+  passwordHash         String
+  firstName            String?
+  lastName             String?
+  phone                String?
+  role                 Role               @default(USER)
+  isActive             Boolean            @default(true)
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  sessions             AuthSession[]
+  agentApplications    AgentApplication[] @relation("UserApplications")
+  reviewedApplications AgentApplication[] @relation("ApplicationReviewer")
+  agentProfile         AgentProfile?
+  favorites            Favorite[]
+
+  @@map("users")
+}
+
+model AuthSession {
+  id               String    @id @default(uuid()) @db.Uuid
+  userId           String    @db.Uuid
+  refreshTokenHash String    @unique
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("auth_sessions")
+}
+
+// Application email is the firm contact captured at submission time.
+// It is independent of the account email and stays as a historical snapshot.
+// One PENDING row per user is enforced by a partial unique index in SQL.
+// Prisma cannot express that predicate, so the migration owns the constraint.
+model AgentApplication {
+  id                  String            @id @default(uuid()) @db.Uuid
+  userId              String            @db.Uuid
+  companyName         String
+  authorizedFirstName String
+  authorizedLastName  String
+  phone               String
+  email               String
+  taxNumber           String
+  city                String
+  district            String
+  address             String
+  description         String?
+  status              ApplicationStatus @default(PENDING)
+  rejectionReason     String?
+  reviewedById        String?           @db.Uuid
+  reviewedAt          DateTime?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  user                User              @relation("UserApplications", fields: [userId], references: [id], onDelete: Cascade)
+  reviewedBy          User?             @relation("ApplicationReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  documents           AgentApplicationDocument[]
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([reviewedById])
+  @@map("agent_applications")
+}
+
+model AgentProfile {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @unique @db.Uuid
+  slug        String   @unique
+  companyName String
+  phone       String
+  email       String
+  taxNumber   String
+  city        String
+  district    String
+  address     String
+  description String?
+  logoFileId  String?  @unique @db.Uuid
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  logoFile    StoredFile? @relation(fields: [logoFileId], references: [id], onDelete: SetNull)
+  properties  Property[]
+
+  @@index([isActive, createdAt])
+  @@map("agent_profiles")
+}
+
+enum ListingType {
+  SALE
+  RENT
+}
+
+enum PropertyType {
+  APARTMENT
+  HOUSE
+  VILLA
+  LAND
+  WORKPLACE
+}
+
+enum PropertyStatus {
+  ACTIVE
+  INACTIVE
+  SOLD
+  RENTED
+}
+
+enum HeatingType {
+  COMBI
+  CENTRAL
+  FLOOR_HEATING
+  STOVE
+  NONE
+  OTHER
+}
+
+enum Currency {
+  TRY
+}
+
+// Latitude and longitude are the write model. A database trigger copies them
+// into location, a geography(Point, 4326) column, on every insert and update.
+model Property {
+  id             String         @id @default(uuid()) @db.Uuid
+  agentProfileId String         @db.Uuid
+  title          String
+  description    String
+  listingType    ListingType
+  propertyType   PropertyType
+  status         PropertyStatus @default(ACTIVE)
+  price          Decimal        @db.Decimal(14, 2)
+  currency       Currency       @default(TRY)
+  grossAreaM2    Decimal        @db.Decimal(10, 2)
+  netAreaM2      Decimal?       @db.Decimal(10, 2)
+  rooms          Int
+  livingRooms    Int
+  buildingAge    Int?
+  floor          Int?
+  totalFloors    Int?
+  heatingType    HeatingType?
+  cityId         String         @db.Uuid
+  districtId     String         @db.Uuid
+  neighborhoodId String         @db.Uuid
+  address        String
+  latitude       Decimal        @db.Decimal(9, 6)
+  longitude      Decimal        @db.Decimal(9, 6)
+  location       Unsupported("geography(Point, 4326)") @default(dbgenerated("(st_setsrid(st_makepoint((0)::double precision, (0)::double precision), 4326))::geography"))
+  isFurnished    Boolean        @default(false)
+  hasBalcony     Boolean        @default(false)
+  hasElevator    Boolean        @default(false)
+  hasParking     Boolean        @default(false)
+  inSite         Boolean        @default(false)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  deletedAt      DateTime?
+  agentProfile   AgentProfile   @relation(fields: [agentProfileId], references: [id], onDelete: Cascade)
+  city           City           @relation(fields: [cityId], references: [id], onDelete: Restrict)
+  district       District       @relation(fields: [districtId], references: [id], onDelete: Restrict)
+  neighborhood   Neighborhood   @relation(fields: [neighborhoodId], references: [id], onDelete: Restrict)
+  images         PropertyImage[]
+  favorites      Favorite[]
+
+  @@index([agentProfileId, createdAt])
+  @@index([status, deletedAt, createdAt])
+  @@index([status, price])
+  @@index([status, cityId, districtId])
+  @@index([status, listingType, propertyType])
+  @@index([status, rooms])
+  @@index([location], type: Gist, map: "properties_location_gist")
+  @@map("properties")
+}
+
+enum FileVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum FileCategory {
+  AGENT_LOGO
+  AGENT_TAX_DOCUMENT
+  AGENT_AUTHORIZATION_DOCUMENT
+  PROPERTY_IMAGE
+}
+
+enum AgentDocumentType {
+  TAX_CERTIFICATE
+  AUTHORIZATION_CERTIFICATE
+}
+
+enum AuditAction {
+  AGENT_APPLICATION_APPROVED
+  AGENT_APPLICATION_REJECTED
+  USER_ACTIVATED
+  USER_DEACTIVATED
+  AGENT_PROFILE_ACTIVATED
+  AGENT_PROFILE_DEACTIVATED
+  PROPERTY_DEACTIVATED_BY_ADMIN
+  PROPERTY_DELETED_BY_ADMIN
+  AGENT_DOCUMENT_UPLOADED
+  AGENT_DOCUMENT_REPLACED
+  PROPERTY_IMAGE_DELETED_BY_ADMIN
+}
+
+model StoredFile {
+  id           String                     @id @default(uuid()) @db.Uuid
+  storageKey   String                     @unique
+  originalName String
+  mimeType     String
+  sizeBytes    Int
+  visibility   FileVisibility
+  category     FileCategory
+  createdAt    DateTime                   @default(now())
+  deletedAt    DateTime?
+  logoProfile  AgentProfile?
+  documents    AgentApplicationDocument[]
+  images       PropertyImage[]
+
+  @@index([category])
+  @@map("stored_files")
+}
+
+model AgentApplicationDocument {
+  id            String            @id @default(uuid()) @db.Uuid
+  applicationId String            @db.Uuid
+  fileId        String            @unique @db.Uuid
+  documentType  AgentDocumentType
+  createdAt     DateTime          @default(now())
+  application   AgentApplication  @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  file          StoredFile        @relation(fields: [fileId], references: [id], onDelete: Restrict)
+
+  @@unique([applicationId, documentType])
+  @@map("agent_application_documents")
+}
+
+// One live cover per property is a partial unique index in SQL.
+// Prisma cannot express the deletedAt predicate, so the migration owns it.
+model PropertyImage {
+  id         String     @id @default(uuid()) @db.Uuid
+  propertyId String     @db.Uuid
+  fileId     String     @unique @db.Uuid
+  sortOrder  Int
+  isCover    Boolean    @default(false)
+  createdAt  DateTime   @default(now())
+  deletedAt  DateTime?
+  property   Property   @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  file       StoredFile @relation(fields: [fileId], references: [id], onDelete: Restrict)
+
+  @@index([propertyId, sortOrder])
+  @@map("property_images")
+}
+
+model City {
+  id         String     @id @default(uuid()) @db.Uuid
+  name       String     @unique
+  code       String?    @unique
+  districts  District[]
+  properties Property[]
+
+  @@map("cities")
+}
+
+model District {
+  id            String         @id @default(uuid()) @db.Uuid
+  cityId        String         @db.Uuid
+  name          String
+  city          City           @relation(fields: [cityId], references: [id], onDelete: Restrict)
+  neighborhoods Neighborhood[]
+  properties    Property[]
+
+  @@unique([cityId, name])
+  @@index([cityId])
+  @@map("districts")
+}
+
+model Neighborhood {
+  id         String     @id @default(uuid()) @db.Uuid
+  districtId String     @db.Uuid
+  name       String
+  district   District   @relation(fields: [districtId], references: [id], onDelete: Restrict)
+  properties Property[]
+
+  @@unique([districtId, name])
+  @@index([districtId])
+  @@map("neighborhoods")
+}
+
+// Rows are append-only. A database trigger rejects UPDATE and DELETE.
+// actorUserId has no foreign key so removing a user cannot rewrite history.
+model AuditLog {
+  id          String      @id @default(uuid()) @db.Uuid
+  actorUserId String      @db.Uuid
+  action      AuditAction
+  entityType  String
+  entityId    String      @db.Uuid
+  metadata    Json?
+  createdAt   DateTime    @default(now())
+
+  @@index([entityType, entityId])
+  @@index([actorUserId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// Soft-deleted properties keep the row. The list hides listings that are no
+// longer public. Cascade runs only when the user or property row itself is
+// removed, so the existing user → profile → property delete chain can finish.
+model Favorite {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid
+  propertyId String   @db.Uuid
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, propertyId])
+  @@index([userId, createdAt])
+  @@map("favorites")
+}

@@ -1,0 +1,531 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap');
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-card-border: hsl(var(--card-border));
+
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-popover-border: hsl(var(--popover-border));
+
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-primary-border: var(--primary-border);
+
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-secondary-border: var(--secondary-border);
+
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-muted-border: var(--muted-border);
+
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-accent-border: var(--accent-border);
+
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-destructive-border: var(--destructive-border);
+
+  --color-chart-1: hsl(var(--chart-1));
+  --color-chart-2: hsl(var(--chart-2));
+  --color-chart-3: hsl(var(--chart-3));
+  --color-chart-4: hsl(var(--chart-4));
+  --color-chart-5: hsl(var(--chart-5));
+
+  --color-sidebar: hsl(var(--sidebar));
+  --color-sidebar-foreground: hsl(var(--sidebar-foreground));
+  --color-sidebar-border: hsl(var(--sidebar-border));
+  --color-sidebar-primary: hsl(var(--sidebar-primary));
+  --color-sidebar-primary-foreground: hsl(var(--sidebar-primary-foreground));
+  --color-sidebar-primary-border: var(--sidebar-primary-border);
+  --color-sidebar-accent: hsl(var(--sidebar-accent));
+  --color-sidebar-accent-foreground: hsl(var(--sidebar-accent-foreground));
+  --color-sidebar-accent-border: var(--sidebar-accent-border);
+  --color-sidebar-ring: hsl(var(--sidebar-ring));
+
+  --font-sans: var(--app-font-sans);
+  --font-serif: var(--app-font-serif);
+  --font-mono: var(--app-font-mono);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+/* LIGHT MODE */
+:root {
+  --button-outline: rgba(0, 0, 0, 0.1);
+  --badge-outline: rgba(0, 0, 0, 0.05);
+
+  /* Automatic computation of border around primary / danger buttons */
+  --opaque-button-border-intensity: -8; /* In terms of percentages */
+
+  /* Backgrounds applied on top of other backgrounds when hovered/active */
+  --elevate-1: rgba(0, 0, 0, 0.03);
+  --elevate-2: rgba(0, 0, 0, 0.08);
+
+  --background: 42 38% 97%;
+
+  --foreground: 222 25% 18%;
+
+  --border: 35 20% 88%;
+
+  --card: 0 0% 100%;
+
+  --card-foreground: 222 25% 18%;
+
+  --card-border: 35 20% 89%;
+
+  --sidebar: 42 30% 95%;
+
+  --sidebar-foreground: 222 25% 18%;
+
+  --sidebar-border: 35 20% 88%;
+
+  --sidebar-primary: 170 32% 29%;
+
+  --sidebar-primary-foreground: 0 0% 100%;
+
+  --sidebar-accent: 170 25% 91%;
+
+  --sidebar-accent-foreground: 170 32% 22%;
+
+  --sidebar-ring: 170 32% 29%;
+
+  --popover: 0 0% 100%;
+
+  --popover-foreground: 222 25% 18%;
+
+  --popover-border: 35 20% 88%;
+
+  --primary: 170 32% 29%;
+
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 35 30% 91%;
+
+  --secondary-foreground: 222 25% 18%;
+
+  --muted: 38 26% 93%;
+
+  --muted-foreground: 220 11% 46%;
+
+  --accent: 17 64% 55%;
+
+  --accent-foreground: 0 0% 100%;
+
+  --destructive: 0 66% 49%;
+
+  --destructive-foreground: 0 0% 100%;
+
+  --input: 35 20% 83%;
+  --ring: 170 32% 29%;
+  --chart-1: 170 32% 29%;
+  --chart-2: 17 64% 55%;
+  --chart-3: 42 58% 63%;
+  --chart-4: 210 26% 50%;
+  --chart-5: 330 30% 58%;
+
+  --app-font-sans: 'DM Sans', sans-serif;
+  --app-font-serif: 'Manrope', sans-serif;
+  --app-font-mono: 'Spline Sans Mono', monospace;
+  --radius: 0.5rem; /* 8px */
+  --shadow-2xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0); /*replace with H S L */
+  --shadow-xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0); /*replace with H S L */
+  --shadow-sm:
+    0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0),
+    0px 1px 2px -1px hsl(202.8169 89.1213% 53.1373% / 0);
+  --shadow:
+    0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0),
+    0px 1px 2px -1px hsl(202.8169 89.1213% 53.1373% / 0);
+  --shadow-md:
+    0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0),
+    0px 2px 4px -1px hsl(202.8169 89.1213% 53.1373% / 0);
+  --shadow-lg:
+    0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0),
+    0px 4px 6px -1px hsl(202.8169 89.1213% 53.1373% / 0);
+  --shadow-xl:
+    0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0),
+    0px 8px 10px -1px hsl(202.8169 89.1213% 53.1373% / 0);
+  --shadow-2xl: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0);
+  --tracking-normal: 0em;
+  --spacing: 0.25rem;
+
+  /* Automatically computed borders - intensity can be controlled by the user by the --opaque-button-border-intensity setting */
+
+  /* Fallback for older browsers */
+  --sidebar-primary-border: hsl(var(--sidebar-primary));
+  --sidebar-primary-border: hsl(
+    from hsl(var(--sidebar-primary)) h s
+      calc(l + var(--opaque-button-border-intensity)) / alpha
+  );
+
+  /* Fallback for older browsers */
+  --sidebar-accent-border: hsl(var(--sidebar-accent));
+  --sidebar-accent-border: hsl(
+    from hsl(var(--sidebar-accent)) h s
+      calc(l + var(--opaque-button-border-intensity)) / alpha
+  );
+
+  /* Fallback for older browsers */
+  --primary-border: hsl(var(--primary));
+  --primary-border: hsl(
+    from hsl(var(--primary)) h s
+      calc(l + var(--opaque-button-border-intensity)) / alpha
+  );
+
+  /* Fallback for older browsers */
+  --secondary-border: hsl(var(--secondary));
+  --secondary-border: hsl(
+    from hsl(var(--secondary)) h s
+      calc(l + var(--opaque-button-border-intensity)) / alpha
+  );
+
+  /* Fallback for older browsers */
+  --muted-border: hsl(var(--muted));
+  --muted-border: hsl(
+    from hsl(var(--muted)) h s calc(l + var(--opaque-button-border-intensity)) /
+      alpha
+  );
+
+  /* Fallback for older browsers */
+  --accent-border: hsl(var(--accent));
+  --accent-border: hsl(
+    from hsl(var(--accent)) h s
+      calc(l + var(--opaque-button-border-intensity)) / alpha
+  );
+
+  /* Fallback for older browsers */
+  --destructive-border: hsl(var(--destructive));
+  --destructive-border: hsl(
+    from hsl(var(--destructive)) h s
+      calc(l + var(--opaque-button-border-intensity)) / alpha
+  );
+}
+
+.dark {
+  --button-outline: rgba(255, 255, 255, 0.1);
+  --badge-outline: rgba(255, 255, 255, 0.05);
+
+  --opaque-button-border-intensity: 9; /* In terms of percentages */
+
+  /* Backgrounds applied on top of other backgrounds when hovered/active */
+  --elevate-1: rgba(255, 255, 255, 0.04);
+  --elevate-2: rgba(255, 255, 255, 0.09);
+
+  --background: 222 24% 12%;
+
+  --foreground: 42 32% 94%;
+
+  --border: 220 15% 24%;
+
+  --card: 222 22% 15%;
+
+  --card-foreground: 42 32% 94%;
+
+  --card-border: 220 15% 24%;
+
+  --sidebar: 222 25% 10%;
+
+  --sidebar-foreground: 42 32% 94%;
+
+  --sidebar-border: 220 15% 24%;
+
+  --sidebar-primary: 170 38% 43%;
+
+  --sidebar-primary-foreground: 0 0% 100%;
+
+  --sidebar-accent: 220 17% 20%;
+
+  --sidebar-accent-foreground: 42 32% 94%;
+
+  --sidebar-ring: 170 38% 43%;
+
+  --popover: 222 22% 15%;
+
+  --popover-foreground: 42 32% 94%;
+
+  --popover-border: 220 15% 24%;
+
+  --primary: 170 38% 43%;
+
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 220 17% 20%;
+
+  --secondary-foreground: 42 32% 94%;
+
+  --muted: 220 17% 20%;
+
+  --muted-foreground: 220 12% 67%;
+
+  --accent: 17 64% 55%;
+
+  --accent-foreground: 0 0% 100%;
+
+  --destructive: 0 60% 56%;
+
+  --destructive-foreground: 0 0% 100%;
+
+  /* Used as the border around inputs. Dark mode: Should be a border that is light enough to have high contrast when rendered on a --card background. More contrast than standard --border */
+  --input: 220 15% 29%;
+  --ring: 170 38% 43%;
+  --chart-1: 170 38% 43%;
+  --chart-2: 17 64% 55%;
+  --chart-3: 42 58% 63%;
+  --chart-4: 210 26% 50%;
+  --chart-5: 330 30% 58%;
+
+  --shadow-2xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0);
+  --shadow-xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0);
+  --shadow-sm:
+    0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0),
+    0px 1px 2px -1px hsl(202.8169 89.1213% 53.1373% / 0);
+  --shadow:
+    0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0),
+    0px 1px 2px -1px hsl(202.8169 89.1213% 53.1373% / 0);
+  --shadow-md:
+    0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0),
+    0px 2px 4px -1px hsl(202.8169 89.1213% 53.1373% / 0);
+  --shadow-lg:
+    0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0),
+    0px 4px 6px -1px hsl(202.8169 89.1213% 53.1373% / 0);
+  --shadow-xl:
+    0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0),
+    0px 8px 10px -1px hsl(202.8169 89.1213% 53.1373% / 0);
+  --shadow-2xl: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+    font-family: var(--app-font-sans);
+  }
+}
+
+.font-display { font-family: var(--app-font-serif); }
+.page-enter { animation: rise-in .45s cubic-bezier(.2,.7,.2,1) both; }
+@keyframes rise-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+.market-shell { min-height: 100dvh; background: hsl(var(--background)); }
+.surface { background: hsl(var(--card)); border: 1px solid hsl(var(--border)); border-radius: 1.1rem; }
+.property-image-fallback { background: linear-gradient(135deg,#e7e8df,#d5ded7 55%,#c9d2cd); }
+
+@layer base {
+  html { scroll-behavior: smooth; }
+  body { font-feature-settings: "ss01" on; }
+  button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+  :focus-visible { outline: 3px solid hsl(var(--primary) / .38); outline-offset: 2px; }
+}
+.home-hero { background:#f6f2e9; }
+.home-hero-visual { position:relative; height:clamp(25rem,38vw,33rem); overflow:hidden; border:1px solid rgba(255,255,255,.82); border-radius:1.25rem; background:#dce5dd; box-shadow:0 14px 34px rgba(31,60,49,.1); }
+.home-hero-visual img,.home-hero-image-fallback { position:absolute; inset:0; width:100%; height:100%; }
+.home-hero-image-fallback { display:grid; place-items:center; color:rgba(35,77,69,.38); background:linear-gradient(145deg,#dce7dc,#c7d6cb 58%,#e9e3d5); }
+.home-hero-image-shade { position:absolute; inset:32% 0 0; background:linear-gradient(180deg,transparent,rgba(17,38,31,.72)); }
+.home-hero-spotlight { position:absolute; right:1rem; bottom:1rem; left:1rem; padding:1.1rem 1.2rem; border:1px solid rgba(255,255,255,.18); border-radius:.9rem; background:rgba(23,61,50,.76); backdrop-filter:blur(10px); }
+.home-search-card { box-shadow:0 10px 28px rgba(31,60,49,.07); }
+.home-search-tabs { display:inline-flex; width:max-content; align-items:center; gap:.2rem; border:1px solid #e3e0d5; border-radius:.8rem; background:#f2f0e8; padding:.25rem; }
+.home-search-tab { min-width:6.1rem; border-radius:.58rem; padding:.58rem .9rem; color:#5a6a61; font-size:.82rem; font-weight:700; transition:background-color .16s,color .16s; }
+.home-search-tab:hover { color:#173d32; }
+.home-search-tab.is-active { background:#173d32; color:#fff; box-shadow:0 1px 3px rgba(20,43,35,.16); }
+.home-search-card select:disabled { cursor:not-allowed; opacity:.63; }
+.home-property-grid .property-card { height:100%; }
+.home-property-grid .property-card>a { display:flex; height:100%; flex-direction:column; }
+.home-property-grid .property-card>a>div:last-child { display:flex; flex:1; flex-direction:column; }
+.home-property-grid .property-card>a>div:last-child>span { min-height:3rem; }
+.home-property-grid .property-card>a>div:last-child>div:last-child { margin-top:auto; }
+.home-city-card { position:relative; display:block; min-height:9.5rem; overflow:hidden; border:1px solid rgba(255,255,255,.55); border-radius:.9rem; background:#6b8074; color:#fff; isolation:isolate; }
+.home-city-image,.home-city-image-fallback { position:absolute; inset:0; height:100%; width:100%; object-fit:cover; }
+.home-city-image { transition:transform .3s ease; }
+.home-city-image-fallback { display:grid; place-items:center; background:linear-gradient(140deg,#9aab9e,#5f796d 60%,#314f43); color:rgba(255,255,255,.58); }
+.home-city-overlay { position:absolute; inset:0; background:linear-gradient(180deg,rgba(18,35,29,.03) 18%,rgba(18,35,29,.72) 100%); }
+.home-city-copy { position:absolute; right:2.75rem; bottom:1rem; left:1rem; }
+.home-city-card small { display:block; color:rgba(255,255,255,.76); font-size:.59rem; font-weight:700; letter-spacing:.13em; }
+.home-city-card b { display:block; margin-top:.22rem; color:#fff; font-size:1.05rem; font-weight:700; }
+.home-city-arrow { position:absolute; right:.85rem; bottom:1rem; color:#fff; transition:transform .18s ease; }
+.home-city-card:hover .home-city-image { transform:scale(1.04); }
+.home-city-card:hover .home-city-arrow { transform:translateX(3px); }
+.home-city-card:focus-visible { outline:3px solid #678b77; outline-offset:3px; }
+.cta-circle { position:absolute; width:25rem; height:25rem; right:-7rem; top:-8rem; border:1px solid rgba(255,255,255,.14); border-radius:50%; }
+.cta-circle:before,.cta-circle:after { content:""; position:absolute; inset:2rem; border:1px solid rgba(255,255,255,.1); border-radius:50%; }
+.cta-circle:after { inset:4rem; }
+.auth-stage { background:radial-gradient(ellipse at 0% 0%,#e8eee7 0,transparent 55%),hsl(var(--background)); }
+.auth-aside { background:#244c44; }
+.nav-link { color:hsl(var(--foreground)); transition:color .16s; }
+.nav-link:hover { color:hsl(var(--primary)); }
+.property-card { box-shadow:0 2px 5px rgba(46,57,45,.025); transition:transform .22s ease,box-shadow .22s ease,border-color .22s; }
+.property-card:hover { transform:translateY(-3px); border-color:#c8d8ce; box-shadow:0 14px 32px rgba(43,64,52,.09); }
+.skeleton { position:relative; overflow:hidden; background:#e9e8e1; border-radius:.65rem; }
+.skeleton:after { content:""; position:absolute; inset:0; transform:translateX(-100%); background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent); animation:shimmer 1.6s infinite; }
+@keyframes shimmer { 100% { transform:translateX(100%); } }
+.page-btn { display:grid; width:2.6rem; height:2.6rem; place-items:center; border:1px solid hsl(var(--border)); border-radius:.75rem; background:hsl(var(--card)); }
+.page-btn:disabled { opacity:.4; cursor:not-allowed; }
+.filter-mobile-button { display:none; height:2.8rem; border:1px solid hsl(var(--border)); border-radius:.75rem; padding:0 1rem; font-size:.9rem; font-weight:600; }
+.listing-toolbar { display:flex; align-items:flex-end; gap:.75rem; }
+.filter-count { display:grid; min-width:1.35rem; height:1.35rem; place-items:center; border-radius:999px; background:#e8eee7; color:#173d32; font-size:.72rem; font-weight:800; }
+.active-filter-list { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; margin:-.65rem 0 1.5rem; }
+.active-filter-heading { margin-right:.25rem; color:#65736b; font-size:.75rem; font-weight:700; }
+.active-filter-chip { display:inline-flex; min-height:2rem; align-items:center; gap:.45rem; border:1px solid #d9e3da; border-radius:999px; background:#f6f8f4; padding:.35rem .7rem; color:#31584d; font-size:.75rem; font-weight:600; transition:background-color .16s,border-color .16s; }
+.active-filter-chip:hover { border-color:#9eb8a6; background:#edf3ed; }
+.clear-active-filters { padding:.35rem .5rem; color:#45675b; font-size:.75rem; font-weight:700; text-decoration:underline; text-underline-offset:3px; }
+.filter-panel { border-radius:1rem; border-color:#e5e2d8; }
+.filter-mobile-panel { display:flex; flex-direction:column; overflow:hidden; padding-bottom:max(1rem,env(safe-area-inset-bottom)); }
+.filter-mobile-panel>div:first-child { flex:none; background:hsl(var(--background)); }
+.filter-mobile-panel .filter-panel { display:flex; min-height:0; flex:1; flex-direction:column; overflow:hidden; border:0; border-radius:0; background:transparent; box-shadow:none; padding:.25rem 1rem 0; }
+.filter-panel-fields { min-height:0; }
+.filter-panel-actions { flex:none; background:hsl(var(--card)); }
+.filter-mobile-panel .filter-panel-fields { flex:1; overflow-y:auto; padding-right:.2rem; }
+.filter-mobile-panel .filter-panel-actions { padding:.7rem 0 0; box-shadow:0 -8px 16px rgba(31,60,49,.07); }
+.filter-backdrop { overscroll-behavior:contain; }
+.detail-image { height:min(55vw,560px); min-height:340px; }
+.gallery-arrow { display:grid; width:2.7rem; height:2.7rem; place-items:center; border-radius:50%; background:rgba(255,255,255,.94); box-shadow:0 3px 15px rgba(20,30,20,.16); }
+.data-table { width:100%; border-collapse:collapse; font-size:.88rem; text-align:left; }
+.data-table th { background:#f7f6f0; padding:1rem; color:#65716b; font-size:.7rem; letter-spacing:.1em; text-transform:uppercase; white-space:nowrap; }
+.data-table td { border-top:1px solid hsl(var(--border)); padding:1rem; vertical-align:middle; white-space:nowrap; }
+.data-table td small { display:block; margin-top:.25rem; color:#77817b; font-size:.75rem; }
+@media (max-width:767px) {
+  .home-hero-visual { height:64vw; min-height:17rem; max-height:23rem; }
+  .home-hero-spotlight { right:.65rem; bottom:.65rem; left:.65rem; padding:.9rem; }
+  .home-city-card { min-height:8.5rem; }
+  .detail-image { min-height:280px; height:70vw; }
+  .data-table th,.data-table td { padding:.8rem; }
+}
+@media (max-width:1023px) {
+  .filter-mobile-button { display:inline-flex; align-items:center; justify-content:center; gap:.5rem; }
+  .listing-toolbar { width:100%; justify-content:flex-end; }
+}
+@media (max-width:430px) {
+  .listing-toolbar { gap:.55rem; }
+  .listing-toolbar .min-w-44 { min-width:9.25rem; }
+  .active-filter-heading { width:100%; }
+}
+
+/**
+ * Using the elevate system.
+ * Automatic contrast adjustment.
+ *
+ * <element className="hover-elevate" />
+ * <element className="active-elevate-2" />
+ *
+ * // Using the tailwind utility when a data attribute is "on"
+ * <element className="toggle-elevate data-[state=on]:toggle-elevated" />
+ * // Or manually controlling the toggle state
+ * <element className="toggle-elevate toggle-elevated" />
+ *
+ * Elevation systems have to handle many states.
+ * - not-hovered, vs. hovered vs. active  (three mutually exclusive states)
+ * - toggled or not
+ * - focused or not (this is not handled with these utilities)
+ *
+ * Even without handling focused or not, this is six possible combinations that
+ * need to be distinguished from eachother visually.
+ */
+@layer utilities {
+  /* Hide ugly search cancel button in Chrome until we can style it properly */
+  input[type='search']::-webkit-search-cancel-button {
+    @apply hidden;
+  }
+
+  /* Placeholder styling for contentEditable div */
+  [contenteditable][data-placeholder]:empty::before {
+    content: attr(data-placeholder);
+    color: hsl(var(--muted-foreground));
+    pointer-events: none;
+  }
+
+  /* .no-default-hover-elevate/no-default-active-elevate is an escape hatch so consumers of
+   * buttons/badges can remove the automatic brightness adjustment on interactions
+   * and program their own. */
+  .no-default-hover-elevate {
+  }
+
+  .no-default-active-elevate {
+  }
+
+  /**
+   * Toggleable backgrounds go behind the content. Hoverable/active goes on top.
+   * This way they can stack/compound. Both will overlap the parent's borders!
+   * So borders will be automatically adjusted both on toggle, and hover/active,
+   * and they will be compounded.
+   */
+  .toggle-elevate::before,
+  .toggle-elevate-2::before {
+    content: '';
+    pointer-events: none;
+    position: absolute;
+    inset: 0px;
+    /*border-radius: inherit;   match rounded corners */
+    border-radius: inherit;
+    z-index: -1;
+    /* sits behind content but above backdrop */
+  }
+
+  .toggle-elevate.toggle-elevated::before {
+    background-color: var(--elevate-2);
+  }
+
+  /* If there's a 1px border, adjust the inset so that it covers that parent's border */
+  .border.toggle-elevate::before {
+    inset: -1px;
+  }
+
+  /* Does not work on elements with overflow:hidden! */
+  .hover-elevate:not(.no-default-hover-elevate),
+  .active-elevate:not(.no-default-active-elevate),
+  .hover-elevate-2:not(.no-default-hover-elevate),
+  .active-elevate-2:not(.no-default-active-elevate) {
+    position: relative;
+    z-index: 0;
+  }
+
+  .hover-elevate:not(.no-default-hover-elevate)::after,
+  .active-elevate:not(.no-default-active-elevate)::after,
+  .hover-elevate-2:not(.no-default-hover-elevate)::after,
+  .active-elevate-2:not(.no-default-active-elevate)::after {
+    content: '';
+    pointer-events: none;
+    position: absolute;
+    inset: 0px;
+    /*border-radius: inherit;   match rounded corners */
+    border-radius: inherit;
+    z-index: 999;
+    /* sits in front of content */
+  }
+
+  .hover-elevate:hover:not(.no-default-hover-elevate)::after,
+  .active-elevate:active:not(.no-default-active-elevate)::after {
+    background-color: var(--elevate-1);
+  }
+
+  .hover-elevate-2:hover:not(.no-default-hover-elevate)::after,
+  .active-elevate-2:active:not(.no-default-active-elevate)::after {
+    background-color: var(--elevate-2);
+  }
+
+  /* If there's a 1px border, adjust the inset so that it covers that parent's border */
+  .border.hover-elevate:not(.no-hover-interaction-elevate)::after,
+  .border.active-elevate:not(.no-active-interaction-elevate)::after,
+  .border.hover-elevate-2:not(.no-hover-interaction-elevate)::after,
+  .border.active-elevate-2:not(.no-active-interaction-elevate)::after,
+  .border.hover-elevate:not(.no-hover-interaction-elevate)::after {
+    inset: -1px;
+  }
+}

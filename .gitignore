@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+
+# Environment
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Builds
+dist/
+build/
+.next/
+out/
+next.config.compiled.js
+*.tsbuildinfo
+
+# Tests
+coverage/
+
+# Prisma Client
+apps/api/src/generated/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.cursor/
+*.swp
+
+# Docker
+docker-data/
+
+# Local object storage
+storage/
+apps/api/storage/

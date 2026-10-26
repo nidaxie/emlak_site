@@ -1,0 +1,14 @@
+{
+  "cities": [
+    {
+      "code": "42",
+      "name": "Konya",
+      "districts": [
+        {
+          "name": "Selçuklu",
+          "neighborhoods": ["Yazır"]
+        }
+      ]
+    }
+  ]
+}

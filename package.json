@@ -1,0 +1,38 @@
+{
+  "name": "emlak-site",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Gayrimenkul ilan platformu — web ve API monoreposu",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run start:dev -w api",
+    "dev:web": "npm run dev -w web",
+    "build": "npm run build -w api && npm run build -w web",
+    "build:api": "npm run build -w api",
+    "build:web": "npm run build -w web",
+    "lint": "npm run lint -w api && npm run lint -w web",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "npm run test -w api",
+    "test:e2e": "npm run test:e2e -w api",
+    "db:generate": "npm run prisma:generate -w api",
+    "db:migrate": "npm run prisma:migrate -w api",
+    "db:deploy": "npm run prisma:deploy -w api"
+  },
+  "engines": {
+    "node": ">=22.18.0",
+    "npm": ">=11.6.0"
+  },
+  "devDependencies": {
+    "prettier": "^3.4.2"
+  },
+  "allowScripts": {
+    "prisma@7.10.0": true,
+    "@prisma/engines@7.10.0": true,
+    "@parcel/watcher@2.6.0": true,
+    "unrs-resolver@1.12.2": true,
+    "argon2@0.45.1": true
+  }
+}
