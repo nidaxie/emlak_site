@@ -9,17 +9,31 @@ import {
 } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
+  getAccessToken,
+  refreshSession,
   setAccessToken,
   setRefreshedHandler,
   setUnauthorizedHandler,
+  subscribeAccessToken,
 } from '@/lib/api-client';
-import { authApi } from '@/services/api';
-import type { AuthUser, LoginRequest } from '@/types/api';
+import { isMockDataEnabled } from '@/lib/data-mode';
+import { authService } from '@/services/auth';
+import type {
+  AuthUser,
+  LoginRequest,
+  LoginResponse,
+  RegisterRequest,
+} from '@/types/api';
 
 type AuthValue = {
   user: AuthUser | null;
+  accessToken: string | null;
+  isAuthenticated: boolean;
+  isLoading: boolean;
   ready: boolean;
-  login: (data: LoginRequest) => Promise<void>;
+  login: (data: LoginRequest) => Promise<LoginResponse>;
+  register: (data: RegisterRequest) => Promise<AuthUser>;
+  refresh: () => Promise<LoginResponse | null>;
   logout: () => Promise<void>;
 };
 
@@ -27,23 +41,32 @@ const AuthContext = createContext<AuthValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [ready, setReady] = useState(false);
+  const [token, setTokenState] = useState<string | null>(() => getAccessToken());
+  const [isLoading, setIsLoading] = useState(true);
   const queryClient = useQueryClient();
   const userRef = useRef(user);
   userRef.current = user;
 
   useEffect(() => {
     let live = true;
+
+    const unsubscribeToken = subscribeAccessToken((nextToken) => {
+      if (live) {
+        setTokenState(nextToken);
+      }
+    });
+
     setUnauthorizedHandler(() => {
       if (live) {
         setUser(null);
-        setAccessToken(null);
+        setTokenState(null);
         queryClient.clear();
       }
     });
-    setRefreshedHandler((refreshedUser) => {
+
+    setRefreshedHandler((session) => {
       if (live) {
-        const next = refreshedUser as AuthUser;
+        const next = session.user;
         if (
           userRef.current &&
           (userRef.current.id !== next.id || userRef.current.role !== next.role)
@@ -51,31 +74,71 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           queryClient.clear();
         }
         setUser(next);
+        setTokenState(session.accessToken);
       }
     });
-    setAccessToken(null);
-    setUser(null);
-    setReady(true);
-    return () => {
+
+    const cleanup = () => {
       live = false;
+      unsubscribeToken();
       setUnauthorizedHandler(null);
       setRefreshedHandler(null);
     };
+
+    if (isMockDataEnabled) {
+      setAccessToken(null);
+      setUser(null);
+      setIsLoading(false);
+      return cleanup;
+    }
+
+    refreshSession()
+      .then((session) => {
+        if (!live) return;
+        if (session) {
+          setUser(session.user);
+          setTokenState(session.accessToken);
+          queryClient.invalidateQueries();
+        } else {
+          setUser(null);
+          setTokenState(null);
+        }
+      })
+      .finally(() => {
+        if (live) {
+          setIsLoading(false);
+        }
+      });
+
+    return cleanup;
   }, [queryClient]);
 
   const value = useMemo<AuthValue>(
     () => ({
       user,
-      ready,
+      accessToken: token,
+      isAuthenticated: Boolean(user && token),
+      isLoading,
+      ready: !isLoading,
       login: async (data) => {
-        const res = await authApi.login(data);
+        const res = await authService.login(data);
         setAccessToken(res.accessToken);
         setUser(res.user);
         queryClient.clear();
+        return res;
+      },
+      register: async (data) => {
+        return authService.register(data);
+      },
+      refresh: async () => {
+        if (isMockDataEnabled) return null;
+        return refreshSession();
       },
       logout: async () => {
         try {
-          await authApi.logout();
+          if (!isMockDataEnabled) {
+            await authService.logout();
+          }
         } finally {
           setAccessToken(null);
           setUser(null);
@@ -83,23 +146,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       },
     }),
-    [user, ready, queryClient],
+    [user, token, isLoading, queryClient],
   );
 
-  return (
-    <AuthContext.Provider value={value}>
-      {ready ? (
-        children
-      ) : (
-        <div className="min-h-[100dvh] bg-[#f4f3ed] p-6">
-          <div className="mx-auto max-w-6xl">
-            <div className="skeleton h-14 w-44" />
-            <div className="mt-12 skeleton h-72 rounded-3xl" />
-          </div>
-        </div>
-      )}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {

@@ -1,12 +1,9 @@
 import { queryString, request } from '@/lib/api-client';
+import { authService } from '@/services/auth';
 import type * as T from '@/types/api';
 
 const json = (data: unknown) => JSON.stringify(data);
-export const authApi = {
-  login: (data: T.LoginRequest) => request<T.LoginResponse>('/auth/login', { method: 'POST', body: json(data), credentials: 'include' }),
-  register: (data: T.RegisterRequest) => request<T.AuthUser>('/auth/register', { method: 'POST', body: json(data) }),
-  logout: () => request<T.LogoutResponse>('/auth/logout', { method: 'POST', credentials: 'include' }),
-};
+export const authApi = authService;
 export const usersApi = {
   me: () => request<T.UserProfile>('/users/me', {}, { auth: true }),
   updateMe: (data: T.UpdateUserProfileRequest) => request<T.UserProfile>('/users/me', { method: 'PATCH', body: json(data) }, { auth: true }),
