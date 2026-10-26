@@ -1,33 +1,77 @@
-import { apiRequest } from '@/services/api-client';
+import { ApiRequestError, refreshSession, request } from '@/lib/api-client';
+import { isMockDataEnabled } from '@/lib/data-mode';
 import type {
-  AuthResult,
-  LoginInput,
-  RegisterInput,
-  PublicUser,
-} from '@/types/auth';
+  AuthUser,
+  LoginRequest,
+  LoginResponse,
+  LogoutResponse,
+  RefreshResponse,
+  RegisterRequest,
+  UserProfile,
+} from '@/types/api';
 
-export function register(input: RegisterInput) {
-  return apiRequest<PublicUser>('/auth/register', {
-    method: 'POST',
-    body: input,
-  });
+function assertApiModeForAuth() {
+  if (isMockDataEnabled) {
+    throw new ApiRequestError(400, {
+      statusCode: 400,
+      message:
+        'Demo veri modunda kimlik doğrulama işlemleri kullanılamaz. Gerçek API için VITE_DATA_MODE=api kullanın.',
+      error: 'Bad Request',
+      timestamp: new Date().toISOString(),
+      path: '/api/v1/auth',
+    });
+  }
 }
 
-export function login(input: LoginInput) {
-  return apiRequest<AuthResult>('/auth/login', {
-    method: 'POST',
-    body: input,
-  });
-}
+export const authService = {
+  register: (data: RegisterRequest): Promise<AuthUser> => {
+    assertApiModeForAuth();
+    return request<AuthUser>(
+      '/auth/register',
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      },
+      { retry: false },
+    );
+  },
 
-export function refreshSession() {
-  return apiRequest<AuthResult>('/auth/refresh', {
-    method: 'POST',
-  });
-}
+  login: (data: LoginRequest): Promise<LoginResponse> => {
+    assertApiModeForAuth();
+    return request<LoginResponse>(
+      '/auth/login',
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+        credentials: 'include',
+      },
+      { retry: false },
+    );
+  },
 
-export function logout() {
-  return apiRequest<{ ok: true }>('/auth/logout', {
-    method: 'POST',
-  });
-}
+  refresh: async (): Promise<RefreshResponse> => {
+    assertApiModeForAuth();
+    const session = await refreshSession();
+    if (!session) {
+      throw new ApiRequestError(401);
+    }
+    return session;
+  },
+
+  logout: (): Promise<LogoutResponse> => {
+    assertApiModeForAuth();
+    return request<LogoutResponse>(
+      '/auth/logout',
+      {
+        method: 'POST',
+        credentials: 'include',
+      },
+      { retry: false },
+    );
+  },
+
+  getMe: (): Promise<UserProfile> => {
+    assertApiModeForAuth();
+    return request<UserProfile>('/users/me', {}, { auth: true });
+  },
+};

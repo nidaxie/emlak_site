@@ -384,12 +384,21 @@ describe('Backend readiness (e2e)', () => {
         `/api/v1/properties/${created.id}/images/${text(secondImage.id)}/cover`,
       )
       .set('Authorization', `Bearer ${owner.token}`);
+    const ownerDetailBeforeDelete = await http()
+      .get(`/api/v1/properties/me/${created.id}`)
+      .set('Authorization', `Bearer ${owner.token}`);
+    const crossOwnerDetail = await http()
+      .get(`/api/v1/properties/me/${created.id}`)
+      .set('Authorization', `Bearer ${otherAgent.token}`);
     const detail = await http().get(`/api/v1/properties/${created.id}`);
     const listed = await http()
       .get('/api/v1/properties')
       .query({ city: location.city.name });
     const removed = await http()
       .delete(`/api/v1/properties/${created.id}/images/${text(firstImage.id)}`)
+      .set('Authorization', `Bearer ${owner.token}`);
+    const ownerDetailAfterDelete = await http()
+      .get(`/api/v1/properties/me/${created.id}`)
       .set('Authorization', `Bearer ${owner.token}`);
     const hidden = await http().get(text(firstImage.url));
     const adminRemoved = await http()
@@ -471,6 +480,23 @@ describe('Backend readiness (e2e)', () => {
     expect(userUpload.status).toBe(403);
     expect(ordered.status).toBe(200);
     expect(cover.status).toBe(200);
+    expect(ownerDetailBeforeDelete.status).toBe(200);
+    expect(rows(record(ownerDetailBeforeDelete.body).images)).toEqual([
+      {
+        id: text(secondImage.id),
+        url: text(secondImage.url),
+        sortOrder: 0,
+        isCover: true,
+      },
+      {
+        id: text(firstImage.id),
+        url: text(firstImage.url),
+        sortOrder: 1,
+        isCover: false,
+      },
+    ]);
+    expect(crossOwnerDetail.status).toBe(404);
+    expect(record(crossOwnerDetail.body).images).toBeUndefined();
     expect(rows(record(detail.body).images).map((item) => item.id)).toEqual([
       text(secondImage.id),
       text(firstImage.id),
@@ -480,6 +506,15 @@ describe('Backend readiness (e2e)', () => {
       secondImage.url,
     );
     expect(removed.status).toBe(200);
+    expect(ownerDetailAfterDelete.status).toBe(200);
+    expect(rows(record(ownerDetailAfterDelete.body).images)).toEqual([
+      {
+        id: text(secondImage.id),
+        url: text(secondImage.url),
+        sortOrder: 0,
+        isCover: true,
+      },
+    ]);
     expect(hidden.status).toBe(404);
     expect(adminRemoved.status).toBe(200);
     expect(userList.status).toBe(403);

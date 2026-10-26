@@ -1,8 +1,7 @@
 node_modules
 dist
+apps/web/dist
 .next
 coverage
 apps/api/src/generated
 package-lock.json
-apps/web/next-env.d.ts
-next.config.compiled.js

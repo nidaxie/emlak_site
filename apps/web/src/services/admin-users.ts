@@ -1,64 +1,54 @@
-import { apiRequest } from '@/services/api-client';
+import { ApiRequestError, queryString, request } from '@/lib/api-client';
+import { isMockDataEnabled } from '@/lib/data-mode';
+import type {
+  ActiveStatusResponse,
+  AdminUser,
+  AdminUserDetail,
+  AdminUserListQuery,
+  PaginatedResponse,
+} from '@/types/api';
 
-export type AdminUser = {
-  id: string;
-  email: string;
-  firstName: string | null;
-  lastName: string | null;
-  phone: string | null;
-  role: 'USER' | 'AGENT' | 'ADMIN';
-  isActive: boolean;
-  createdAt: string;
-};
-
-export type AdminUserPage = {
-  items: AdminUser[];
-  page: number;
-  limit: number;
-  total: number;
-};
-
-export function adminGetUsers(
-  accessToken: string,
-  query: {
-    role?: AdminUser['role'];
-    isActive?: 'true' | 'false';
-    email?: string;
-    page?: number;
-    limit?: number;
-  } = {},
-) {
-  return apiRequest<AdminUserPage>(`/admin/users${queryString(query)}`, {
-    accessToken,
-  });
-}
-
-export function adminGetUser(accessToken: string, id: string) {
-  return apiRequest<AdminUser & { updatedAt: string }>(`/admin/users/${id}`, {
-    accessToken,
-  });
-}
-
-export function adminSetUserStatus(
-  accessToken: string,
-  id: string,
-  isActive: boolean,
-) {
-  return apiRequest<{ id: string; isActive: boolean }>(
-    `/admin/users/${id}/status`,
-    { method: 'PATCH', accessToken, body: { isActive } },
-  );
-}
-
-function queryString(query: object) {
-  const params = new URLSearchParams();
-
-  for (const [key, value] of Object.entries(query)) {
-    if (value !== undefined) {
-      params.set(key, String(value));
-    }
+function assertApiModeForAdminUsers() {
+  if (isMockDataEnabled) {
+    throw new ApiRequestError(400, {
+      statusCode: 400,
+      message: 'Bu özellik gerçek API bağlantısı gerektirir.',
+      error: 'Bad Request',
+      timestamp: new Date().toISOString(),
+      path: '/api/v1/admin/users',
+    });
   }
-
-  const text = params.toString();
-  return text ? `?${text}` : '';
 }
+
+export const adminUsersService = {
+  getUsers: (
+    query: AdminUserListQuery,
+  ): Promise<PaginatedResponse<AdminUser>> => {
+    assertApiModeForAdminUsers();
+    return request<PaginatedResponse<AdminUser>>(
+      `/admin/users${queryString(query)}`,
+      {},
+      { auth: true },
+    );
+  },
+
+  getUser: (id: string): Promise<AdminUserDetail> => {
+    assertApiModeForAdminUsers();
+    return request<AdminUserDetail>(`/admin/users/${id}`, {}, { auth: true });
+  },
+
+  updateUserStatus: (
+    id: string,
+    isActive: boolean,
+  ): Promise<ActiveStatusResponse> => {
+    assertApiModeForAdminUsers();
+    return request<ActiveStatusResponse>(
+      `/admin/users/${id}/status`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive }),
+      },
+      { auth: true },
+    );
+  },
+};

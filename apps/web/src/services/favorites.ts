@@ -1,41 +1,56 @@
-import { apiRequest } from '@/services/api-client';
-import type { PropertyPage, PublicProperty } from '@/types/properties';
+import { ApiRequestError, queryString, request } from '@/lib/api-client';
+import { isMockDataEnabled } from '@/lib/data-mode';
+import type {
+  FavoriteListResponse,
+  FavoriteMutationResponse,
+  FavoriteRemovalResponse,
+} from '@/types/api';
 
-export type Favorite = {
-  propertyId: string;
-  createdAt: string;
-};
-
-export function addFavorite(accessToken: string, propertyId: string) {
-  return apiRequest<Favorite>(`/favorites/${propertyId}`, { accessToken });
-}
-
-export function removeFavorite(accessToken: string, propertyId: string) {
-  return apiRequest<{ propertyId: string }>(`/favorites/${propertyId}`, {
-    method: 'DELETE',
-    accessToken,
-  });
-}
-
-export function getFavorites(
-  accessToken: string,
-  query: { page?: number; limit?: number } = {},
-) {
-  return apiRequest<PropertyPage<PublicProperty>>(
-    `/favorites${queryString(query)}`,
-    { accessToken },
-  );
-}
-
-function queryString(query: object) {
-  const params = new URLSearchParams();
-
-  for (const [key, value] of Object.entries(query)) {
-    if (value !== undefined) {
-      params.set(key, String(value));
-    }
+function assertApiModeForFavorites() {
+  if (isMockDataEnabled) {
+    throw new ApiRequestError(400, {
+      statusCode: 400,
+      message: 'Bu özellik gerçek API bağlantısı gerektirir.',
+      error: 'Bad Request',
+      timestamp: new Date().toISOString(),
+      path: '/api/v1/favorites',
+    });
   }
-
-  const text = params.toString();
-  return text ? `?${text}` : '';
 }
+
+export const favoritesService = {
+  getFavorites: (page = 1, limit = 20): Promise<FavoriteListResponse> => {
+    assertApiModeForFavorites();
+    return request<FavoriteListResponse>(
+      `/favorites${queryString({ page, limit })}`,
+      {},
+      { auth: true },
+    );
+  },
+
+  addFavorite: (propertyId: string): Promise<FavoriteMutationResponse> => {
+    assertApiModeForFavorites();
+    return request<FavoriteMutationResponse>(
+      `/favorites/${propertyId}`,
+      { method: 'POST' },
+      { auth: true },
+    );
+  },
+
+  removeFavorite: (propertyId: string): Promise<FavoriteRemovalResponse> => {
+    assertApiModeForFavorites();
+    return request<FavoriteRemovalResponse>(
+      `/favorites/${propertyId}`,
+      { method: 'DELETE' },
+      { auth: true },
+    );
+  },
+
+  // Backward-compatible aliases used in api.ts
+  list: (page = 1, limit = 20): Promise<FavoriteListResponse> =>
+    favoritesService.getFavorites(page, limit),
+  add: (propertyId: string): Promise<FavoriteMutationResponse> =>
+    favoritesService.addFavorite(propertyId),
+  remove: (propertyId: string): Promise<FavoriteRemovalResponse> =>
+    favoritesService.removeFavorite(propertyId),
+};

@@ -646,6 +646,8 @@ Hepsi `AGENT` ve Bearer ister. Başka emlakçının ilanı 404 `Property not fou
 
 `GET /properties/me` query'si `status`, `page` ve `limit` dir. `sort` yoktur. Silinmiş ilanlar gelmez. Yanıt `PropertyRecord` sayfasıdır. Bu kayıtta `coverImageUrl` ve `isFavorite` yoktur. `agentProfileId`, `updatedAt` ve `deletedAt` vardır.
 
+`GET /properties/me/:id` yanıtı `OwnerPropertyDetail` (`PropertyRecord` + `sortOrder` sırasındaki canlı `images: PropertyImage[]`) döner. Silinmiş fotoğraflar dahil edilmez.
+
 `DELETE` soft delete yapar ve `{ "id", "deletedAt" }` döner.
 
 ## 8.1 Property create
@@ -861,7 +863,7 @@ Liste query'si `status`, `listingType`, `city` (adın tam eşleşmesi), `deleted
 
 Liste öğesi `PropertyRecord` artı kısa `agent` taşır: `id`, `slug`, `companyName`, `isActive`, `user: { id, role, isActive }`.
 
-Detay `agent` daha geniştir: `phone`, `email`, `city`, `district` ve `user.email` eklenir.
+Detay `agent` daha geniştir (`phone`, `email`, `city`, `district`, `user.email` eklenir) ve silinmemiş canlı fotoğrafları `sortOrder` sırasında `images: PropertyImage[]` olarak taşır.
 
 Pasife alma ve silme `{ "reason" }` ister. Pasife alma `PropertyRecord` döner. Silme `{ "id", "deletedAt" }` döner. Fotoğraf silme `{ "id" }` döner.
 

@@ -1,65 +1,96 @@
-import { apiRequest, apiUpload } from '@/services/api-client';
+import { ApiRequestError, queryString, request } from '@/lib/api-client';
+import { isMockDataEnabled } from '@/lib/data-mode';
 import type {
+  AgentLogoResponse,
   AgentProfile,
-  PublicAgentProfile,
-  UpdateAgentProfileInput,
-} from '@/types/agents';
-import type {
-  PropertyPage,
-  PublicProperty,
-  PublicPropertyQuery,
-} from '@/types/properties';
+  AgentPropertyListQuery,
+  AgentPublicProfile,
+  PaginatedResponse,
+  PropertyCard,
+  UpdateAgentProfileRequest,
+} from '@/types/api';
 
-export function getPublicAgent(slug: string) {
-  return apiRequest<PublicAgentProfile>(`/agents/${encodeURIComponent(slug)}`);
-}
-
-export function getAgentProperties(
-  slug: string,
-  query: PublicPropertyQuery = {},
-  accessToken?: string,
-) {
-  return apiRequest<PropertyPage<PublicProperty>>(
-    `/agents/${encodeURIComponent(slug)}/properties${queryString(query)}`,
-    { accessToken },
-  );
-}
-
-export function getMyAgentProfile(accessToken: string) {
-  return apiRequest<AgentProfile>('/agents/me', { accessToken });
-}
-
-export function uploadMyAgentLogo(
-  accessToken: string,
-  file: Blob,
-  fileName: string,
-) {
-  const form = new FormData();
-  form.set('file', file, fileName);
-
-  return apiUpload<{ logoUrl: string }>('/agents/me/logo', form, accessToken);
-}
-
-function queryString(query: object) {
-  const params = new URLSearchParams();
-
-  for (const [key, value] of Object.entries(query)) {
-    if (value !== undefined) {
-      params.set(key, String(value));
-    }
+function assertApiModeForAgentPanel() {
+  if (isMockDataEnabled) {
+    throw new ApiRequestError(400, {
+      statusCode: 400,
+      message: 'Bu özellik gerçek API bağlantısı gerektirir.',
+      error: 'Bad Request',
+      timestamp: new Date().toISOString(),
+      path: '/api/v1/agents/me',
+    });
   }
-
-  const text = params.toString();
-  return text ? `?${text}` : '';
 }
 
-export function updateMyAgentProfile(
-  accessToken: string,
-  input: UpdateAgentProfileInput,
-) {
-  return apiRequest<AgentProfile>('/agents/me', {
-    method: 'PATCH',
-    accessToken,
-    body: input,
-  });
-}
+export const agentsService = {
+  getPublicAgent: (slug: string): Promise<AgentPublicProfile> =>
+    request<AgentPublicProfile>(`/agents/${slug}`),
+
+  getPublicAgentProperties: (
+    slug: string,
+    query: AgentPropertyListQuery,
+  ): Promise<PaginatedResponse<PropertyCard>> =>
+    request<PaginatedResponse<PropertyCard>>(
+      `/agents/${slug}/properties${queryString(query)}`,
+      {},
+      { auth: 'optional' },
+    ),
+
+  getMyAgentProfile: (): Promise<AgentProfile> => {
+    assertApiModeForAgentPanel();
+    return request<AgentProfile>('/agents/me', {}, { auth: true });
+  },
+
+  updateMyAgentProfile: (
+    data: UpdateAgentProfileRequest,
+  ): Promise<AgentProfile> => {
+    assertApiModeForAgentPanel();
+    const payload: UpdateAgentProfileRequest = {
+      ...(data.companyName !== undefined
+        ? { companyName: data.companyName.trim() }
+        : {}),
+      ...(data.phone !== undefined ? { phone: data.phone.trim() } : {}),
+      ...(data.email !== undefined ? { email: data.email.trim() } : {}),
+      ...(data.address !== undefined ? { address: data.address.trim() } : {}),
+      ...(data.description !== undefined
+        ? { description: data.description.trim() }
+        : {}),
+    };
+    return request<AgentProfile>(
+      '/agents/me',
+      {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      },
+      { auth: true },
+    );
+  },
+
+  uploadAgentLogo: (file: File): Promise<AgentLogoResponse> => {
+    assertApiModeForAgentPanel();
+    const body = new FormData();
+    body.append('file', file);
+    return request<AgentLogoResponse>(
+      '/agents/me/logo',
+      {
+        method: 'POST',
+        body,
+      },
+      { auth: true },
+    );
+  },
+
+  // Backward-compatible aliases used in api.ts
+  public: (slug: string): Promise<AgentPublicProfile> =>
+    agentsService.getPublicAgent(slug),
+  properties: (
+    slug: string,
+    query: AgentPropertyListQuery,
+  ): Promise<PaginatedResponse<PropertyCard>> =>
+    agentsService.getPublicAgentProperties(slug, query),
+  mine: (): Promise<AgentProfile> => agentsService.getMyAgentProfile(),
+  update: (data: UpdateAgentProfileRequest): Promise<AgentProfile> =>
+    agentsService.updateMyAgentProfile(data),
+  logo: (file: File): Promise<AgentLogoResponse> =>
+    agentsService.uploadAgentLogo(file),
+};

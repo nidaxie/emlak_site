@@ -1,50 +1,109 @@
-import { apiRequest, apiUpload } from '@/services/api-client';
-import type { AgentApplication, AgentApplicationInput } from '@/types/agents';
+import { ApiRequestError, request } from '@/lib/api-client';
+import { isMockDataEnabled } from '@/lib/data-mode';
+import type {
+  AgentApplication,
+  AgentApplicationDocument,
+  AgentDocumentType,
+  CreateAgentApplicationRequest,
+  UpdateAgentApplicationRequest,
+  UploadedAgentDocument,
+} from '@/types/api';
 
-export function createAgentApplication(
-  accessToken: string,
-  input: AgentApplicationInput,
-) {
-  return apiRequest<AgentApplication>('/agent-applications', {
-    accessToken,
-    body: input,
-  });
+function assertApiModeForAgentApplications() {
+  if (isMockDataEnabled) {
+    throw new ApiRequestError(400, {
+      statusCode: 400,
+      message: 'Bu özellik gerçek API bağlantısı gerektirir.',
+      error: 'Bad Request',
+      timestamp: new Date().toISOString(),
+      path: '/api/v1/agent-applications',
+    });
+  }
 }
 
-export function getMyAgentApplication(accessToken: string) {
-  return apiRequest<AgentApplication>('/agent-applications/me', {
-    accessToken,
-  });
-}
+export const agentApplicationsService = {
+  createApplication: (
+    data: CreateAgentApplicationRequest,
+  ): Promise<AgentApplication> => {
+    assertApiModeForAgentApplications();
+    return request<AgentApplication>(
+      '/agent-applications',
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      },
+      { auth: true },
+    );
+  },
 
-export type AgentDocumentType = 'TAX_CERTIFICATE' | 'AUTHORIZATION_CERTIFICATE';
+  getMyApplication: (): Promise<AgentApplication> => {
+    assertApiModeForAgentApplications();
+    return request<AgentApplication>(
+      '/agent-applications/me',
+      {},
+      { auth: true },
+    );
+  },
 
-export function uploadAgentDocument(
-  accessToken: string,
-  documentType: AgentDocumentType,
-  file: Blob,
-  fileName: string,
-) {
-  const form = new FormData();
-  form.set('file', file, fileName);
-  form.set('documentType', documentType);
+  updateMyApplication: (
+    data: UpdateAgentApplicationRequest,
+  ): Promise<AgentApplication> => {
+    assertApiModeForAgentApplications();
+    return request<AgentApplication>(
+      '/agent-applications/me',
+      {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      },
+      { auth: true },
+    );
+  },
 
-  return apiUpload<{
-    id: string;
-    documentType: AgentDocumentType;
-    originalName: string;
-    mimeType: string;
-    sizeBytes: number;
-  }>('/agent-applications/me/documents', form, accessToken);
-}
+  uploadDocument: (
+    file: File,
+    documentType: AgentDocumentType,
+  ): Promise<UploadedAgentDocument> => {
+    assertApiModeForAgentApplications();
+    const body = new FormData();
+    body.append('file', file);
+    body.append('documentType', documentType);
+    return request<UploadedAgentDocument>(
+      '/agent-applications/me/documents',
+      {
+        method: 'POST',
+        body,
+      },
+      { auth: true },
+    );
+  },
 
-export function updateMyAgentApplication(
-  accessToken: string,
-  input: Partial<AgentApplicationInput>,
-) {
-  return apiRequest<AgentApplication>('/agent-applications/me', {
-    method: 'PATCH',
-    accessToken,
-    body: input,
-  });
-}
+  getMyDocuments: (): Promise<AgentApplicationDocument[]> => {
+    assertApiModeForAgentApplications();
+    return request<AgentApplicationDocument[]>(
+      '/agent-applications/me/documents',
+      {},
+      { auth: true },
+    );
+  },
+
+  getMyDocument: (documentId: string): Promise<Blob> => {
+    assertApiModeForAgentApplications();
+    return request<Blob>(
+      `/agent-applications/me/documents/${documentId}`,
+      {},
+      { auth: true },
+    );
+  },
+
+  // Backward-compatible aliases used in api.ts
+  mine: (): Promise<AgentApplication> =>
+    agentApplicationsService.getMyApplication(),
+  create: (data: CreateAgentApplicationRequest): Promise<AgentApplication> =>
+    agentApplicationsService.createApplication(data),
+  update: (data: UpdateAgentApplicationRequest): Promise<AgentApplication> =>
+    agentApplicationsService.updateMyApplication(data),
+  documents: (): Promise<AgentApplicationDocument[]> =>
+    agentApplicationsService.getMyDocuments(),
+  download: (id: string): Promise<Blob> =>
+    agentApplicationsService.getMyDocument(id),
+};

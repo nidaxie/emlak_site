@@ -1,63 +1,86 @@
-import { apiRequest } from '@/services/api-client';
+import { ApiRequestError, queryString, request } from '@/lib/api-client';
+import { isMockDataEnabled } from '@/lib/data-mode';
 import type {
-  Property,
-  PropertyPage,
-  PropertyStatus,
-} from '@/types/properties';
+  AdminProperty,
+  AdminPropertyDetail,
+  AdminPropertyListQuery,
+  DeletePropertyResponse,
+  DeletedPropertyImageResponse,
+  PaginatedResponse,
+  PropertyRecord,
+} from '@/types/api';
 
-export function adminGetProperties(
-  accessToken: string,
-  query: {
-    status?: PropertyStatus;
-    listingType?: 'SALE' | 'RENT';
-    city?: string;
-    deleted?: 'true' | 'false';
-    page?: number;
-    limit?: number;
-  } = {},
-) {
-  return apiRequest<PropertyPage<Property>>(
-    `/admin/properties${queryString(query)}`,
-    { accessToken },
-  );
-}
-
-export function adminGetProperty(accessToken: string, id: string) {
-  return apiRequest<Property>(`/admin/properties/${id}`, { accessToken });
-}
-
-export function adminDeactivateProperty(
-  accessToken: string,
-  id: string,
-  reason: string,
-) {
-  return apiRequest<Property>(`/admin/properties/${id}/deactivate`, {
-    method: 'PATCH',
-    accessToken,
-    body: { reason },
-  });
-}
-
-export function adminDeleteProperty(
-  accessToken: string,
-  id: string,
-  reason: string,
-) {
-  return apiRequest<{ id: string; deletedAt: string }>(
-    `/admin/properties/${id}`,
-    { method: 'DELETE', accessToken, body: { reason } },
-  );
-}
-
-function queryString(query: object) {
-  const params = new URLSearchParams();
-
-  for (const [key, value] of Object.entries(query)) {
-    if (value !== undefined) {
-      params.set(key, String(value));
-    }
+function assertApiModeForAdminProperties() {
+  if (isMockDataEnabled) {
+    throw new ApiRequestError(400, {
+      statusCode: 400,
+      message: 'Bu özellik gerçek API bağlantısı gerektirir.',
+      error: 'Bad Request',
+      timestamp: new Date().toISOString(),
+      path: '/api/v1/admin/properties',
+    });
   }
-
-  const text = params.toString();
-  return text ? `?${text}` : '';
 }
+
+export const adminPropertiesService = {
+  getProperties: (
+    query: AdminPropertyListQuery,
+  ): Promise<PaginatedResponse<AdminProperty>> => {
+    assertApiModeForAdminProperties();
+    return request<PaginatedResponse<AdminProperty>>(
+      `/admin/properties${queryString(query)}`,
+      {},
+      { auth: true },
+    );
+  },
+
+  getProperty: (id: string): Promise<AdminPropertyDetail> => {
+    assertApiModeForAdminProperties();
+    return request<AdminPropertyDetail>(
+      `/admin/properties/${id}`,
+      {},
+      { auth: true },
+    );
+  },
+
+  deactivateProperty: (id: string, reason: string): Promise<PropertyRecord> => {
+    assertApiModeForAdminProperties();
+    return request<PropertyRecord>(
+      `/admin/properties/${id}/deactivate`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ reason: reason.trim() }),
+      },
+      { auth: true },
+    );
+  },
+
+  deletePropertyImage: (
+    id: string,
+    imageId: string,
+  ): Promise<DeletedPropertyImageResponse> => {
+    assertApiModeForAdminProperties();
+    return request<DeletedPropertyImageResponse>(
+      `/admin/properties/${id}/images/${imageId}`,
+      {
+        method: 'DELETE',
+      },
+      { auth: true },
+    );
+  },
+
+  deleteProperty: (
+    id: string,
+    reason: string,
+  ): Promise<DeletePropertyResponse> => {
+    assertApiModeForAdminProperties();
+    return request<DeletePropertyResponse>(
+      `/admin/properties/${id}`,
+      {
+        method: 'DELETE',
+        body: JSON.stringify({ reason: reason.trim() }),
+      },
+      { auth: true },
+    );
+  },
+};
