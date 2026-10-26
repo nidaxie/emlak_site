@@ -1,13 +1,13 @@
 import { queryString, request } from '@/lib/api-client';
+import { agentApplicationsService } from '@/services/agent-applications';
 import { authService } from '@/services/auth';
+import { favoritesService } from '@/services/favorites';
+import { usersService } from '@/services/users';
 import type * as T from '@/types/api';
 
 const json = (data: unknown) => JSON.stringify(data);
 export const authApi = authService;
-export const usersApi = {
-  me: () => request<T.UserProfile>('/users/me', {}, { auth: true }),
-  updateMe: (data: T.UpdateUserProfileRequest) => request<T.UserProfile>('/users/me', { method: 'PATCH', body: json(data) }, { auth: true }),
-};
+export const usersApi = usersService;
 export const locationsApi = {
   cities: () => request<T.City[]>('/locations/cities'),
   districts: (cityId: string) => request<T.District[]>(`/locations/cities/${cityId}/districts`),
@@ -32,11 +32,7 @@ export const propertiesApi = {
   adminDelete: (id: string, reason: string) => request<T.DeletePropertyResponse>(`/admin/properties/${id}`, { method: 'DELETE', body: json({ reason }) }, { auth: true }),
   adminDeleteImage: (id: string, imageId: string) => request<T.DeletedPropertyImageResponse>(`/admin/properties/${id}/images/${imageId}`, { method: 'DELETE' }, { auth: true }),
 };
-export const favoritesApi = {
-  list: (page = 1, limit = 20) => request<T.FavoriteListResponse>(`/favorites${queryString({ page, limit })}`, {}, { auth: true }),
-  add: (id: string) => request<T.FavoriteMutationResponse>(`/favorites/${id}`, { method: 'POST' }, { auth: true }),
-  remove: (id: string) => request<T.FavoriteRemovalResponse>(`/favorites/${id}`, { method: 'DELETE' }, { auth: true }),
-};
+export const favoritesApi = favoritesService;
 export const agentsApi = {
   public: (slug: string) => request<T.AgentPublicProfile>(`/agents/${slug}`),
   properties: (slug: string, query: T.AgentPropertyListQuery) => request<T.PaginatedResponse<T.PropertyCard>>(`/agents/${slug}/properties${queryString(query)}`, {}, { auth: 'optional' }),
@@ -44,14 +40,7 @@ export const agentsApi = {
   update: (data: T.UpdateAgentProfileRequest) => request<T.AgentProfile>('/agents/me', { method: 'PATCH', body: json(data) }, { auth: true }),
   logo: (file: File) => { const body = new FormData(); body.append('file', file); return request<T.AgentLogoResponse>('/agents/me/logo', { method: 'POST', body }, { auth: true }); },
 };
-export const applicationsApi = {
-  mine: () => request<T.AgentApplication>('/agent-applications/me', {}, { auth: true }),
-  create: (data: T.CreateAgentApplicationRequest) => request<T.AgentApplication>('/agent-applications', { method: 'POST', body: json(data) }, { auth: true }),
-  update: (data: T.UpdateAgentApplicationRequest) => request<T.AgentApplication>('/agent-applications/me', { method: 'PATCH', body: json(data) }, { auth: true }),
-  documents: () => request<T.AgentApplicationDocument[]>('/agent-applications/me/documents', {}, { auth: true }),
-  uploadDocument: (file: File, documentType: T.AgentDocumentType) => { const body = new FormData(); body.append('file', file); body.append('documentType', documentType); return request<T.UploadedAgentDocument>('/agent-applications/me/documents', { method: 'POST', body }, { auth: true }); },
-  download: (id: string) => request<Blob>(`/agent-applications/me/documents/${id}`, {}, { auth: true }),
-};
+export const applicationsApi = agentApplicationsService;
 export const adminApi = {
   users: (q: T.AdminUserListQuery) => request<T.PaginatedResponse<T.AdminUser>>(`/admin/users${queryString(q)}`, {}, { auth: true }),
   user: (id: string) => request<T.AdminUserDetail>(`/admin/users/${id}`, {}, { auth: true }),

@@ -70,6 +70,14 @@ function resolveErrorMessage(status: number, payload?: ApiError): string {
     return 'Bu e-posta adresiyle kayıtlı bir hesap zaten bulunuyor.';
   }
 
+  if (status === 409 && rawMessage === 'Pending application already exists') {
+    return 'İncelemede olan bir emlakçı başvurunuz zaten bulunuyor.';
+  }
+
+  if (status === 409 && rawMessage === 'Application is no longer pending') {
+    return 'Bu başvuru artık inceleme aşamasında olmadığı için güncellenemez.';
+  }
+
   if (status === 401 && rawMessage === 'Invalid email or password') {
     return 'E-posta veya şifre hatalı. Lütfen bilgilerinizi kontrol edin.';
   }

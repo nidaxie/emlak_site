@@ -1,15 +1,16 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Route, Switch, Link, useLocation, useRoute, useSearch, Router as WouterRouter } from 'wouter';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-import { useForm } from 'react-hook-form';
+import { useForm, type RegisterOptions } from 'react-hook-form';
 import { AuthProvider, useAuth } from '@/hooks/auth-context';
-import { useAgent, useAgentProperties, useApplication, useApplicationDocs, useApiCities, useApiDistricts, useApiNeighborhoods, useCities, useDistricts, useFavorites, useInvalidateMarketplace, useMineProperties, useNeighborhoods, useProperties, useProperty, useToggleFavorite, useAdminUsers, useAdminAgents, useAdminApps, useAdminProperties, useAdminAudit, useMe } from '@/hooks/use-api';
+import { keys, useAgent, useAgentProperties, useApplication, useApplicationDocs, useApiCities, useApiDistricts, useApiNeighborhoods, useCities, useDistricts, useFavorites, useInvalidateMarketplace, useMineProperties, useNeighborhoods, useProperties, useProperty, useToggleFavorite, useAdminUsers, useAdminAgents, useAdminApps, useAdminProperties, useAdminAudit, useMe } from '@/hooks/use-api';
 import { adminApi, agentsApi, applicationsApi, propertiesApi, usersApi } from '@/services/api';
 import { ApiRequestError, fileUrl } from '@/lib/api-client';
 import { EmptyState, ErrorState, labels, money, area, Pagination, PropertyCardView, SectionTitle, SkeletonGrid, inputClass } from '@/components/market-ui';
 import { ArrowLeft, ArrowRight, BadgeCheck, Building2, ChevronDown, ChevronLeft, ChevronRight, CircleUserRound, Heart, Home, MapPin, Menu, Phone, Search, ShieldCheck, SlidersHorizontal, UserRound, X } from 'lucide-react';
 import type { AgentDocumentType, CreateAgentApplicationRequest, CreatePropertyRequest, PropertyCard, PropertyStatus, PublicPropertyListQuery, RegisterRequest, UpdatePropertyRequest } from '@/types/api';
+import { useToast } from '@/hooks/use-toast';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { ErrorBoundary } from '@/components/error-boundary';
@@ -61,7 +62,8 @@ function Guard({ roles, children }: { roles?: string[]; children: ReactNode }) {
   }
 
   if (roles && !roles.includes(user.role)) {
-    return <PublicLayout><div className="mx-auto max-w-5xl px-5 py-16"><EmptyState title="Bu sayfaya erişim yetkiniz bulunmuyor" text="Hesap rolünüz bu alanı görüntülemek için uygun değil." href="/" action="Ana sayfaya dön"/></div></PublicLayout>;
+    const isAgentOnApplication = location === '/emlakci-basvuru' && user.role === 'AGENT';
+    return <PublicLayout><div className="mx-auto max-w-5xl px-5 py-16"><EmptyState title={isAgentOnApplication ? 'Emlak danışmanı hesabınız zaten aktif.' : 'Bu sayfaya erişim yetkiniz bulunmuyor'} text={isAgentOnApplication ? 'Başvurunuz onaylandığı için emlak danışmanı çalışma alanını kullanabilirsiniz.' : 'Hesap rolünüz bu alanı görüntülemek için uygun değil.'} href={isAgentOnApplication ? '/panel' : '/'} action={isAgentOnApplication ? 'Panelime git' : 'Ana sayfaya dön'}/></div></PublicLayout>;
   }
 
   return <>{children}</>;
@@ -160,8 +162,6 @@ function ListingPage() {
   const districts = useDistricts(selectedCity?.id || '');
   const selectedDistrict = districts.data?.find(district => district.name === filters.district);
   const hoods = useNeighborhoods(selectedDistrict?.id || '');
-  const favoriteMutation = useToggleFavorite();
-  const { user } = useAuth();
 
   const apply = (nextPage = 1, nextFilters: Record<string, string> = filters) => {
     const next = new URLSearchParams();
@@ -263,7 +263,7 @@ function ListingPage() {
         <section aria-label="İlan sonuçları" aria-busy={results.isLoading}>
           {results.isLoading ? <SkeletonGrid /> : results.error ? <ErrorState retry={() => results.refetch()} message={showError(results.error)} /> : results.data?.items.length ? <>
             <div className="home-property-grid grid items-stretch gap-5 sm:grid-cols-2 xl:grid-cols-3">
-              {results.data.items.map(property => <PropertyCardView key={property.id} property={property} onFavorite={(id, isFavorite) => user ? favoriteMutation.mutate({ id, favorite: isFavorite }) : go('/giris')} favoriteBusy={favoriteMutation.isPending} />)}
+              {results.data.items.map(property => <PropertyCardView key={property.id} property={property} />)}
             </div>
             <Pagination page={results.data.page} limit={results.data.limit} total={results.data.total} onChange={nextPage => apply(nextPage, initial)} />
           </> : <div className="surface flex min-h-64 flex-col items-center justify-center px-6 py-12 text-center">
@@ -288,7 +288,8 @@ function FilterSelect({label,value,onChange,options,empty='Seçin',disabled=fals
 function FilterRange({label,min,max,onMin,onMax}:{label:string;min:string;max:string;onMin:(v:string)=>void;onMax:(v:string)=>void}) { return <fieldset className="mb-4"><legend className="mb-1.5 text-xs font-semibold text-muted-foreground">{label}</legend><div className="grid grid-cols-2 gap-2"><input type="number" min="0" step="any" className={inputClass} placeholder="Minimum" aria-label={label + ' minimum'} inputMode="decimal" value={min} onChange={e=>onMin(e.target.value)}/><input type="number" min="0" step="any" className={inputClass} placeholder="Maksimum" aria-label={label + ' maksimum'} inputMode="decimal" value={max} onChange={e=>onMax(e.target.value)}/></div></fieldset>; }
 
 function PropertyDetailPage() {
-  const [match,params]=useRoute('/ilan/:id'); const id=params?.id||''; const q=useProperty(id); const [imageIndex,setImageIndex]=useState(0); const [lightbox,setLightbox]=useState(false); const [imageError,setImageError]=useState<string|null>(null); const {user}=useAuth(); const [,go]=useLocation(); const fav=useToggleFavorite();
+  const [match,params]=useRoute('/ilan/:id'); const id=params?.id||''; const q=useProperty(id); const [imageIndex,setImageIndex]=useState(0); const [lightbox,setLightbox]=useState(false); const [imageError,setImageError]=useState<string|null>(null); const {isAuthenticated}=useAuth(); const [location,go]=useLocation(); const search=useSearch(); const fav=useToggleFavorite();
+  const currentTarget = `${location}${search ? `?${search}` : ''}`;
   useEffect(()=>setImageError(null),[q.data?.images[imageIndex]?.url,q.data?.coverImageUrl]);
   if(!match)return null;
   if(q.isLoading)return <PublicLayout><div className="mx-auto max-w-6xl p-8"><div className="skeleton h-[420px] rounded-3xl"/><div className="skeleton mt-8 h-32"/></div></PublicLayout>;
@@ -298,7 +299,7 @@ function PropertyDetailPage() {
   return <PublicLayout><div className="mx-auto max-w-[1280px] px-5 py-8"><Link href="/ilanlar" className="mb-5 inline-flex items-center gap-2 text-sm font-semibold text-muted-foreground"><ArrowLeft size={16}/> İlanlara dön</Link><div className="grid gap-8 lg:grid-cols-[1.45fr_.8fr]"><section><div className="detail-image relative overflow-hidden rounded-[1.5rem] bg-muted">{imageAvailable?<img src={src!} alt={p.title} role="button" tabIndex={0} onClick={()=>setLightbox(true)} onError={()=>setImageError(src)} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();setLightbox(true);}}} className="h-full w-full cursor-zoom-in object-cover"/>:<div className="property-image-fallback grid h-full min-h-[340px] place-items-center" role="img" aria-label="İlan görseli kullanılamıyor"><Home size={58} className="text-emerald-900/30"/></div>}{images.length>1&&<div className="absolute inset-x-4 top-1/2 flex -translate-y-1/2 justify-between"><button className="gallery-arrow" onClick={()=>setImageIndex((imageIndex-1+images.length)%images.length)} aria-label="Önceki fotoğraf"><ChevronLeft/></button><button className="gallery-arrow" onClick={()=>setImageIndex((imageIndex+1)%images.length)} aria-label="Sonraki fotoğraf"><ChevronRight/></button></div>}<span className="absolute bottom-4 right-4 rounded-full bg-black/60 px-3 py-1 text-xs text-white">{images.length?`${imageIndex+1} / ${images.length}`:'Fotoğraf bulunmuyor'}</span></div>{images.length>1&&<div className="mt-3 flex gap-2 overflow-x-auto">{images.map((im,i)=><button key={im.id} className={`h-20 w-28 shrink-0 overflow-hidden rounded-xl border-2 ${i===imageIndex?'border-primary':'border-transparent'}`} onClick={()=>setImageIndex(i)}><img src={fileUrl(im.url)||''} alt={`${p.title} ${i+1}`} onError={e=>{e.currentTarget.style.opacity='0';}} className="h-full w-full object-cover"/></button>)}</div>}
       {lightbox&&imageAvailable&&<div className="fixed inset-0 z-[70] flex items-center justify-center bg-[#14211e]/95 p-4" role="dialog" aria-modal="true" aria-label="İlan fotoğrafı görüntüleyici" onClick={()=>setLightbox(false)}><button className="absolute right-5 top-5 grid h-11 w-11 place-items-center rounded-full bg-white/10 text-white" aria-label="Görüntüleyiciyi kapat" onClick={()=>setLightbox(false)}><X/></button>{images.length>1&&<button className="gallery-arrow absolute left-4 top-1/2 -translate-y-1/2" onClick={e=>{e.stopPropagation();setImageIndex((imageIndex-1+images.length)%images.length);}} aria-label="Önceki fotoğraf"><ChevronLeft/></button>}<img src={src!} alt={p.title} className="max-h-[88dvh] max-w-[92vw] rounded-lg object-contain" onError={()=>setImageError(src)} onClick={e=>e.stopPropagation()}/>{images.length>1&&<button className="gallery-arrow absolute right-4 top-1/2 -translate-y-1/2" onClick={e=>{e.stopPropagation();setImageIndex((imageIndex+1)%images.length);}} aria-label="Sonraki fotoğraf"><ChevronRight/></button>}</div>}
       <div className="mt-10"><SectionTitle eyebrow="İlan detayları" title="Öne çıkan özellikler"/><div className="grid grid-cols-2 gap-3 sm:grid-cols-3">{facts.map(([key,val])=><div key={key} className="rounded-xl bg-card p-4"><p className="text-xs text-muted-foreground">{key}</p><p className="mt-1 font-semibold">{val}</p></div>)}</div></div><div className="mt-10"><SectionTitle title="Açıklama"/><p className="whitespace-pre-line leading-7 text-muted-foreground">{p.description}</p></div><div className="mt-10"><SectionTitle title="Konum"/><div className="surface p-5"><p className="flex items-center gap-2 font-semibold"><span className="text-primary"><Home size={17}/></span>{p.neighborhood}, {p.district}, {p.city}</p><p className="mt-2 text-sm text-muted-foreground">{p.address}</p><p className="mt-3 text-xs text-muted-foreground">Konum koordinatları: {p.latitude}, {p.longitude}</p></div></div></section>
-      <aside><div className="surface sticky top-28 p-6"><div className="flex items-center justify-between"><span className="rounded-full bg-secondary px-3 py-1.5 text-xs font-bold text-primary">{labels[p.listingType]} · {labels[p.propertyType]}</span><button onClick={()=>user?fav.mutate({id:p.id,favorite:p.isFavorite}):go('/giris')} aria-label="Favorile" className={`grid h-10 w-10 place-items-center rounded-full bg-muted ${p.isFavorite?'text-rose-600':''}`}><Heart fill={p.isFavorite?'currentColor':'none'}/></button></div><p className="mt-5 font-display text-4xl font-extrabold text-primary">{money(p.price)}</p><h1 className="mt-3 font-display text-2xl font-bold leading-snug">{p.title}</h1><p className="mt-3 flex items-center gap-1.5 text-sm text-muted-foreground">{p.neighborhood}, {p.district}, {p.city}</p><div className="my-5 grid grid-cols-3 border-y border-border py-4 text-center"><span><b className="block">{p.rooms}+{p.livingRooms}</b><small className="text-xs text-muted-foreground">Oda</small></span><span><b className="block">{area(p.grossAreaM2)} m²</b><small className="text-xs text-muted-foreground">Brüt</small></span><span><b className="block">{p.buildingAge??'—'}</b><small className="text-xs text-muted-foreground">Bina yaşı</small></span></div><div className="flex items-center gap-3 rounded-xl bg-muted/70 p-4"><div className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-xl bg-white text-primary">{p.agent.logoUrl&&fileUrl(p.agent.logoUrl)?<img src={fileUrl(p.agent.logoUrl)!} alt="" className="h-full w-full object-cover"/>:<Building2 size={22}/>}</div><div className="min-w-0 flex-1"><Link href={`/emlakci/${p.agent.slug}`} className="block truncate font-bold hover:text-primary">{p.agent.companyName}</Link><Link href={`/emlakci/${p.agent.slug}`} className="text-xs text-primary">Emlakçı profili</Link></div></div><a href={`tel:${p.agent.phone}`} className="mt-4 flex h-12 items-center justify-center gap-2 rounded-xl bg-primary font-semibold text-white"><Phone size={17}/> {p.agent.phone}</a><p className="mt-3 text-center text-[11px] text-muted-foreground">İlan hakkında bilgi almak için emlakçıyla iletişime geçin.</p></div></aside></div></div></PublicLayout>;
+      <aside><div className="surface sticky top-28 p-6"><div className="flex items-center justify-between"><span className="rounded-full bg-secondary px-3 py-1.5 text-xs font-bold text-primary">{labels[p.listingType]} · {labels[p.propertyType]}</span><button type="button" disabled={fav.isPending} onClick={()=>isAuthenticated?fav.mutate({id:p.id,favorite:p.isFavorite}):go(`/giris?returnTo=${encodeURIComponent(currentTarget)}`)} aria-label={p.isFavorite?'Favorilerden çıkar':'Favorilere ekle'} aria-pressed={p.isFavorite} data-testid={`button-detail-favorite-${p.id}`} className={`grid h-10 w-10 place-items-center rounded-full bg-muted ${p.isFavorite?'text-rose-600':''}`}><Heart fill={p.isFavorite?'currentColor':'none'}/></button></div><p className="mt-5 font-display text-4xl font-extrabold text-primary">{money(p.price)}</p><h1 className="mt-3 font-display text-2xl font-bold leading-snug">{p.title}</h1><p className="mt-3 flex items-center gap-1.5 text-sm text-muted-foreground">{p.neighborhood}, {p.district}, {p.city}</p><div className="my-5 grid grid-cols-3 border-y border-border py-4 text-center"><span><b className="block">{p.rooms}+{p.livingRooms}</b><small className="text-xs text-muted-foreground">Oda</small></span><span><b className="block">{area(p.grossAreaM2)} m²</b><small className="text-xs text-muted-foreground">Brüt</small></span><span><b className="block">{p.buildingAge??'—'}</b><small className="text-xs text-muted-foreground">Bina yaşı</small></span></div><div className="flex items-center gap-3 rounded-xl bg-muted/70 p-4"><div className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-xl bg-white text-primary">{p.agent.logoUrl&&fileUrl(p.agent.logoUrl)?<img src={fileUrl(p.agent.logoUrl)!} alt="" className="h-full w-full object-cover"/>:<Building2 size={22}/>}</div><div className="min-w-0 flex-1"><Link href={`/emlakci/${p.agent.slug}`} className="block truncate font-bold hover:text-primary">{p.agent.companyName}</Link><Link href={`/emlakci/${p.agent.slug}`} className="text-xs text-primary">Emlakçı profili</Link></div></div><a href={`tel:${p.agent.phone}`} className="mt-4 flex h-12 items-center justify-center gap-2 rounded-xl bg-primary font-semibold text-white"><Phone size={17}/> {p.agent.phone}</a><p className="mt-3 text-center text-[11px] text-muted-foreground">İlan hakkında bilgi almak için emlakçıyla iletişime geçin.</p></div></aside></div></div></PublicLayout>;
 }
 
 function AgentPage() {
@@ -335,30 +336,219 @@ function AuthPage({mode}:{mode:'login'|'register'}) {
 function FavoritesPage() {
   const [page,setPage]=useState(1); const q=useFavorites(page); const fav=useToggleFavorite();
   return <Guard><PublicLayout><div className="mx-auto max-w-[1440px] px-5 py-12 lg:px-10"><SectionTitle eyebrow="Sizin seçtikleriniz" title="Favorilerim" description="Beğendiğiniz ilanlara daha sonra buradan ulaşın."/>
-    {q.isLoading?<SkeletonGrid/>:q.error?<ErrorState retry={()=>q.refetch()} message={showError(q.error)}/>:q.data?.items.length?<><div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">{q.data.items.map(p=><PropertyCardView key={p.id} property={p} onFavorite={(id,is)=>fav.mutate({id,favorite:is})} favoriteBusy={fav.isPending}/>)}</div><Pagination page={q.data.page} limit={q.data.limit} total={q.data.total} onChange={setPage}/></>:<EmptyState title="Favori ilanınız bulunmuyor" text="İlan kartlarındaki kalp simgesine dokunarak beğendiklerinizi burada saklayabilirsiniz." href="/ilanlar" action="İlanları keşfet"/>}</div></PublicLayout></Guard>;
+    {DATA_MODE==='mock'?<EmptyState title="Bu özellik gerçek API bağlantısı gerektirir" text="Favorilerinizi görüntülemek ve yönetmek için gerçek API modunda giriş yapın." href="/ilanlar" action="İlanları keşfet"/>:q.isLoading?<SkeletonGrid/>:q.error?<ErrorState retry={()=>q.refetch()} message={showError(q.error)}/>:q.data?.items.length?<><div className="home-property-grid grid items-stretch gap-5 sm:grid-cols-2 xl:grid-cols-3">{q.data.items.map(p=><PropertyCardView key={p.id} property={p} onFavorite={(id,is)=>fav.mutate({id,favorite:is})} favoriteBusy={fav.isPending}/>)}</div><Pagination page={q.data.page} limit={q.data.limit} total={q.data.total} onChange={setPage}/></>:<EmptyState title="Henüz favori ilanınız yok" text="İlan kartlarındaki kalp simgesine dokunarak beğendiklerinizi burada saklayabilirsiniz." href="/ilanlar" action="İlanları keşfet"/>}</div></PublicLayout></Guard>;
 }
 function ProfilePage() {
-  const me=useMe(),qc=useQueryClient(); const [message,setMessage]=useState(''); const form=useForm({defaultValues:{firstName:'',lastName:'',phone:''}});
+  const me=useMe(),qc=useQueryClient(); const {syncUser}=useAuth(); const {toast}=useToast(); const [message,setMessage]=useState(''); const form=useForm<{firstName:string;lastName:string;phone:string}>({defaultValues:{firstName:'',lastName:'',phone:''}});
   useEffect(()=>{if(me.data)form.reset({firstName:me.data.firstName||'',lastName:me.data.lastName||'',phone:me.data.phone||''});},[me.data,form]);
-  const save=useMutation({mutationFn:usersApi.updateMe,onSuccess:data=>{qc.setQueryData(['me'],data);setMessage('Profil bilgileriniz güncellendi.');}});
+  const save=useMutation({mutationFn:usersApi.updateMe,onSuccess:data=>{qc.setQueryData(['me'],data);syncUser(data);setMessage('Profil bilgileriniz güncellendi.');toast({title:'Profil bilgileriniz güncellendi.'});}});
   return <Guard><PublicLayout><div className="mx-auto max-w-4xl px-5 py-12"><SectionTitle eyebrow="Hesap ayarları" title="Profilim" description="Hesap ve iletişim bilgilerinizi yönetin."/>
-    {me.isLoading?<div className="surface p-8"><div className="skeleton h-40"/></div>:me.error?<ErrorState retry={()=>me.refetch()} message={showError(me.error)}/>:<div className="surface p-7"><div className="mb-6 rounded-xl bg-muted p-4"><small className="text-xs text-muted-foreground">E-posta · düzenlenemez</small><p className="mt-1 font-semibold">{me.data?.email}</p><small className="mt-3 block text-xs text-muted-foreground">Hesap türü</small><p className="mt-1 font-semibold">{labels[me.data?.role||'USER']}</p></div><form className="grid gap-4 sm:grid-cols-2" onSubmit={form.handleSubmit(v=>save.mutate(v))}>{(['firstName','lastName','phone'] as const).map((k,i)=><label className="grid gap-1.5 text-sm font-semibold" key={k}>{['Ad','Soyad','Telefon'][i]}<input className={inputClass} {...form.register(k)}/></label>)}{message&&<p className="text-sm text-primary sm:col-span-2">{message}</p>}{save.error&&<p className="text-sm text-destructive sm:col-span-2">{showError(save.error)}</p>}<button className="h-11 rounded-xl bg-primary px-5 font-bold text-white sm:col-span-2" disabled={save.isPending}>{save.isPending?'Kaydediliyor…':'Değişiklikleri kaydet'}</button></form></div>}</div></PublicLayout></Guard>;
+    {DATA_MODE==='mock'?<EmptyState title="Bu özellik gerçek API bağlantısı gerektirir" text="Profil bilgilerinizi görüntülemek ve düzenlemek için gerçek API modunda giriş yapın." href="/ilanlar" action="İlanları keşfet"/>:me.isLoading?<div className="surface p-8"><div className="skeleton h-40"/></div>:me.error?<ErrorState retry={()=>me.refetch()} message={showError(me.error)}/>:<div className="surface p-7"><div className="mb-6 grid gap-4 rounded-xl bg-muted p-4 sm:grid-cols-2"><label className="grid gap-1.5 text-xs font-semibold text-muted-foreground">E-posta · düzenlenemez<input className={inputClass+' cursor-not-allowed opacity-70'} value={me.data?.email||''} readOnly disabled aria-readonly="true" data-testid="input-profile-email"/></label><label className="grid gap-1.5 text-xs font-semibold text-muted-foreground">Hesap türü · düzenlenemez<input className={inputClass+' cursor-not-allowed opacity-70'} value={labels[me.data?.role||'USER']||me.data?.role||''} readOnly disabled aria-readonly="true" data-testid="input-profile-role"/></label></div><form className="grid gap-4 sm:grid-cols-2" onSubmit={form.handleSubmit(v=>{setMessage('');save.mutate({firstName:v.firstName.trim(),lastName:v.lastName.trim(),phone:v.phone.trim()});})}><label className="grid gap-1.5 text-sm font-semibold">Ad<input className={inputClass} data-testid="input-profile-firstName" {...form.register('firstName',{maxLength:{value:80,message:'Ad en fazla 80 karakter olabilir.'}})}/><span className="text-xs text-destructive">{form.formState.errors.firstName?.message}</span></label><label className="grid gap-1.5 text-sm font-semibold">Soyad<input className={inputClass} data-testid="input-profile-lastName" {...form.register('lastName',{maxLength:{value:80,message:'Soyad en fazla 80 karakter olabilir.'}})}/><span className="text-xs text-destructive">{form.formState.errors.lastName?.message}</span></label><label className="grid gap-1.5 text-sm font-semibold sm:col-span-2">Telefon<input className={inputClass} type="tel" data-testid="input-profile-phone" {...form.register('phone',{maxLength:{value:32,message:'Telefon en fazla 32 karakter olabilir.'}})}/><span className="text-xs text-destructive">{form.formState.errors.phone?.message}</span></label>{message&&<p role="status" className="text-sm text-primary sm:col-span-2">{message}</p>}{save.error&&<p role="alert" className="text-sm text-destructive sm:col-span-2">{showError(save.error)}</p>}<button className="h-11 rounded-xl bg-primary px-5 font-bold text-white disabled:opacity-60 sm:col-span-2" disabled={save.isPending} data-testid="button-profile-save">{save.isPending?'Kaydediliyor…':'Değişiklikleri kaydet'}</button></form></div>}</div></PublicLayout></Guard>;
 }
 
 function ApplicationPage() {
-  const {user}=useAuth(); const app=useApplication(); const docs=useApplicationDocs(!!app.data); const qc=useQueryClient(); const [feedback,setFeedback]=useState('');
-  const form=useForm<CreateAgentApplicationRequest>({defaultValues:{companyName:'',authorizedFirstName:'',authorizedLastName:'',phone:'',email:user?.email||'',taxNumber:'',city:'',district:'',address:'',description:''}});
-  useEffect(()=>{if(app.data)form.reset({companyName:app.data.companyName,authorizedFirstName:app.data.authorizedFirstName,authorizedLastName:app.data.authorizedLastName,phone:app.data.phone,email:app.data.email,taxNumber:app.data.taxNumber,city:app.data.city,district:app.data.district,address:app.data.address,description:app.data.description||''});},[app.data,form]);
-  const mutation=useMutation({mutationFn:(v:CreateAgentApplicationRequest)=>{const data={...v};if(!data.description?.trim())delete data.description;return app.data?.status==='PENDING'?applicationsApi.update(data):applicationsApi.create(data);},onSuccess:()=>{qc.invalidateQueries({queryKey:['application']});qc.invalidateQueries({queryKey:['application-docs']});setFeedback('Başvurunuz kaydedildi.');}});
-  const upload=async(file:File,type:AgentDocumentType)=>{if(file.size>10*1024*1024){setFeedback('Dosya boyutu 10 MB sınırını aşamaz.');return;}try{await applicationsApi.uploadDocument(file,type);await qc.invalidateQueries({queryKey:['application-docs']});setFeedback('Belge yüklendi.');}catch(e){setFeedback(showError(e));}};
-  const download=async(id:string)=>{try{const blob=await applicationsApi.download(id);const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='basvuru-belgesi';a.click();URL.revokeObjectURL(url);}catch(e){setFeedback(showError(e));}};
-  const fields:[keyof CreateAgentApplicationRequest,string][]=[['companyName','Firma adı'],['authorizedFirstName','Yetkili adı'],['authorizedLastName','Yetkili soyadı'],['phone','Telefon'],['email','E-posta'],['taxNumber','Vergi numarası'],['city','Şehir'],['district','İlçe'],['address','Açık adres']];
+  const {user,refresh}=useAuth(); const {toast}=useToast(); const isMock=DATA_MODE==='mock';
+  const app=useApplication(!isMock); const docs=useApplicationDocs(!isMock&&!!app.data);
+  const qc=useQueryClient(); const [feedback,setFeedback]=useState(''); const [errorMsg,setErrorMsg]=useState('');
+  const [uploadingType,setUploadingType]=useState<AgentDocumentType|null>(null); const [downloadingId,setDownloadingId]=useState<string|null>(null);
+  const syncedApprovedId=useRef<string|null>(null);
+
+  const form=useForm<CreateAgentApplicationRequest>({
+    defaultValues:{
+      companyName:'',
+      authorizedFirstName:user?.firstName||'',
+      authorizedLastName:user?.lastName||'',
+      phone:user?.phone||'',
+      email:user?.email||'',
+      taxNumber:'',
+      city:'',
+      district:'',
+      address:'',
+      description:'',
+    },
+  });
+
+  useEffect(()=>{
+    if(app.data){
+      form.reset({
+        companyName:app.data.companyName,
+        authorizedFirstName:app.data.authorizedFirstName,
+        authorizedLastName:app.data.authorizedLastName,
+        phone:app.data.phone,
+        email:app.data.email,
+        taxNumber:app.data.taxNumber,
+        city:app.data.city,
+        district:app.data.district,
+        address:app.data.address,
+        description:app.data.description||'',
+      });
+    }else if(user&&app.error instanceof ApiRequestError&&app.error.status===404){
+      form.reset({
+        companyName:'',
+        authorizedFirstName:user.firstName||'',
+        authorizedLastName:user.lastName||'',
+        phone:user.phone||'',
+        email:user.email||'',
+        taxNumber:'',
+        city:'',
+        district:'',
+        address:'',
+        description:'',
+      });
+    }
+  },[app.data,app.error,user,form]);
+
+  useEffect(()=>{
+    if(app.data?.status==='APPROVED'&&user?.role==='USER'&&syncedApprovedId.current!==app.data.id){
+      syncedApprovedId.current=app.data.id;
+      void refresh();
+    }
+  },[app.data?.id,app.data?.status,user?.role,refresh]);
+
+  const mutation=useMutation({
+    mutationFn:(v:CreateAgentApplicationRequest)=>{
+      const isPending=app.data?.status==='PENDING';
+      const trimmedDesc=v.description?.trim()||'';
+      const payload:CreateAgentApplicationRequest={
+        companyName:v.companyName.trim(),
+        authorizedFirstName:v.authorizedFirstName.trim(),
+        authorizedLastName:v.authorizedLastName.trim(),
+        phone:v.phone.trim(),
+        email:v.email.trim(),
+        taxNumber:v.taxNumber.trim(),
+        city:v.city.trim(),
+        district:v.district.trim(),
+        address:v.address.trim(),
+        ...(isPending?{description:trimmedDesc}:trimmedDesc?{description:trimmedDesc}:{}),
+      };
+      return isPending?applicationsApi.updateMyApplication(payload):applicationsApi.createApplication(payload);
+    },
+    onSuccess:(saved)=>{
+      const wasPending=app.data?.status==='PENDING';
+      qc.setQueryData(keys.application,saved);
+      void qc.invalidateQueries({queryKey:keys.application});
+      void qc.invalidateQueries({queryKey:keys.applicationDocs});
+      const msg=wasPending?'Başvuru bilgileriniz güncellendi.':'Başvurunuz alındı ve incelemeye gönderildi.';
+      setErrorMsg('');
+      setFeedback(msg);
+      toast({title:msg});
+    },
+    onError:(err)=>{
+      const msg=showError(err);
+      setFeedback('');
+      setErrorMsg(msg);
+    },
+  });
+
+  const upload=async(file:File,type:AgentDocumentType)=>{
+    setFeedback('');
+    setErrorMsg('');
+    if(file.size>10*1024*1024){
+      setErrorMsg('Dosya boyutu 10 MB sınırını aşamaz.');
+      return;
+    }
+    const allowedMimes=['application/pdf','image/jpeg','image/png'];
+    const lowerName=file.name.toLowerCase();
+    const validExt=lowerName.endsWith('.pdf')||lowerName.endsWith('.jpg')||lowerName.endsWith('.jpeg')||lowerName.endsWith('.png');
+    if((file.type&&!allowedMimes.includes(file.type))||(!file.type&&!validExt)){
+      setErrorMsg('Yalnızca PDF, JPEG veya PNG formatında belge yüklenebilir.');
+      return;
+    }
+    setUploadingType(type);
+    try{
+      await applicationsApi.uploadDocument(file,type);
+      await qc.invalidateQueries({queryKey:keys.applicationDocs});
+      const msg=`${labels[type]||type} yüklendi.`;
+      setFeedback(msg);
+      toast({title:msg});
+    }catch(e){
+      setErrorMsg(showError(e));
+    }finally{
+      setUploadingType(null);
+    }
+  };
+
+  const download=async(id:string,originalName:string)=>{
+    setErrorMsg('');
+    setDownloadingId(id);
+    try{
+      const blob=await applicationsApi.getMyDocument(id);
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');
+      a.href=url;
+      a.download=originalName||'basvuru-belgesi';
+      a.click();
+      URL.revokeObjectURL(url);
+    }catch(e){
+      setErrorMsg(showError(e));
+    }finally{
+      setDownloadingId(null);
+    }
+  };
+
+  const fieldConfigs:Array<{key:Exclude<keyof CreateAgentApplicationRequest,'description'>;label:string;type?:string;rules:RegisterOptions<CreateAgentApplicationRequest,Exclude<keyof CreateAgentApplicationRequest,'description'>>}>=[
+    {key:'companyName',label:'Firma adı',rules:{required:'Firma adı zorunludur.',minLength:{value:2,message:'Firma adı en az 2 karakter olmalıdır.'},maxLength:{value:120,message:'Firma adı en fazla 120 karakter olabilir.'}}},
+    {key:'authorizedFirstName',label:'Yetkili adı',rules:{required:'Yetkili adı zorunludur.',minLength:{value:2,message:'Yetkili adı en az 2 karakter olmalıdır.'},maxLength:{value:80,message:'Yetkili adı en fazla 80 karakter olabilir.'}}},
+    {key:'authorizedLastName',label:'Yetkili soyadı',rules:{required:'Yetkili soyadı zorunludur.',minLength:{value:2,message:'Yetkili soyadı en az 2 karakter olmalıdır.'},maxLength:{value:80,message:'Yetkili soyadı en fazla 80 karakter olabilir.'}}},
+    {key:'phone',label:'Telefon',type:'tel',rules:{required:'Telefon zorunludur.',minLength:{value:7,message:'Telefon en az 7 karakter olmalıdır.'},maxLength:{value:32,message:'Telefon en fazla 32 karakter olabilir.'}}},
+    {key:'email',label:'Firma e-postası',type:'email',rules:{required:'Firma e-postası zorunludur.',maxLength:{value:254,message:'E-posta en fazla 254 karakter olabilir.'}}},
+    {key:'taxNumber',label:'Vergi numarası',rules:{required:'Vergi numarası zorunludur.',pattern:{value:/^\d{10,11}$/,message:'Vergi numarası 10 veya 11 rakam olmalı.'}}},
+    {key:'city',label:'Şehir',rules:{required:'Şehir zorunludur.',minLength:{value:2,message:'Şehir en az 2 karakter olmalıdır.'},maxLength:{value:80,message:'Şehir en fazla 80 karakter olabilir.'}}},
+    {key:'district',label:'İlçe',rules:{required:'İlçe zorunludur.',minLength:{value:2,message:'İlçe en az 2 karakter olmalıdır.'},maxLength:{value:80,message:'İlçe en fazla 80 karakter olabilir.'}}},
+    {key:'address',label:'Açık adres',rules:{required:'Açık adres zorunludur.',minLength:{value:5,message:'Açık adres en az 5 karakter olmalıdır.'},maxLength:{value:300,message:'Açık adres en fazla 300 karakter olabilir.'}}},
+  ];
+
+  const isNoApplication=app.error instanceof ApiRequestError&&app.error.status===404;
+  const hasRealError=Boolean(app.error&&!isNoApplication);
+  const currentApp=isNoApplication?undefined:app.data;
+  const isApproved=currentApp?.status==='APPROVED';
+
   return <Guard roles={['USER']}><PublicLayout><div className="mx-auto max-w-4xl px-5 py-12"><SectionTitle eyebrow="Profesyonel hesabı" title="Emlakçı başvurusu" description="Başvurunuzu ve gerekli belgeleri tek yerden yönetin."/>
-    {app.isLoading?<div className="surface p-8"><div className="skeleton h-40"/></div>:<div className="grid gap-6">{app.data&&<div className="surface flex flex-wrap items-center justify-between gap-3 p-5"><div><p className="text-xs text-muted-foreground">Başvuru durumu</p><p className="mt-1 font-bold">{labels[app.data.status]}</p></div><span className="rounded-full bg-secondary px-3 py-1 text-xs">{new Date(app.data.updatedAt).toLocaleDateString('tr-TR')}</span>{app.data.rejectionReason&&<p className="w-full rounded-lg bg-rose-50 p-3 text-sm text-rose-800">Red nedeni: {app.data.rejectionReason}</p>}</div>}
-      {(app.error&&!(app.error instanceof ApiRequestError&&app.error.status===404))&&<ErrorState retry={()=>app.refetch()} message={showError(app.error)}/>}
-      <div className="surface p-6"><h2 className="mb-5 font-display text-xl font-bold">Firma bilgileri</h2><form className="grid gap-4 sm:grid-cols-2" onSubmit={form.handleSubmit(v=>mutation.mutate(v))}>{fields.map(([k,label])=><label className="grid gap-1.5 text-sm font-semibold" key={k}>{label}<input className={inputClass} {...form.register(k,{required:true,...(k==='taxNumber'?{pattern:{value:/^\d{10,11}$/,message:'Vergi numarası 10 veya 11 rakam olmalı.'}}:{})})}/><span className="text-xs text-destructive">{form.formState.errors[k]?.message}</span></label>)}<label className="grid gap-1.5 text-sm font-semibold sm:col-span-2">Açıklama<textarea className={`${inputClass} h-24 py-3`} {...form.register('description')}/></label><button disabled={mutation.isPending||app.data?.status==='APPROVED'} className="h-11 rounded-xl bg-primary px-5 font-bold text-white sm:col-span-2">{mutation.isPending?'Gönderiliyor…':app.data?.status==='PENDING'?'Başvuruyu güncelle':app.data?.status==='REJECTED'?'Yeni başvuru oluştur':'Başvuruyu gönder'}</button></form><p className="mt-3 text-xs text-muted-foreground">İncelemedeki başvurunuzu güncelleyebilir veya reddedilmiş bir başvuru için yenisini gönderebilirsiniz.</p></div>
-      {app.data&&<div className="surface p-6"><h2 className="font-display text-xl font-bold">Başvuru belgeleri</h2><p className="mt-1 text-sm text-muted-foreground">PDF, JPEG veya PNG · dosya başına en fazla 10 MB</p><div className="mt-5 grid gap-3 sm:grid-cols-2">{(['TAX_CERTIFICATE','AUTHORIZATION_CERTIFICATE'] as AgentDocumentType[]).map((type,i)=>{const doc=docs.data?.find(d=>d.documentType===type);return <div key={type} className="rounded-xl border border-border p-4"><p className="font-semibold">{i===0?'Vergi levhası':'Yetki belgesi'}</p>{doc?<button className="mt-2 text-sm font-semibold text-primary underline" onClick={()=>download(doc.id)}>{doc.originalName} · İndir</button>:<p className="mt-2 text-xs text-muted-foreground">Henüz belge eklenmedi</p>}{app.data.status==='PENDING'?<label className="mt-4 flex cursor-pointer items-center justify-center rounded-lg border border-dashed border-border px-3 py-3 text-sm font-semibold hover:border-primary">{doc?'Belgeyi değiştir':'Belge yükle'}<input className="sr-only" type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" onChange={e=>{const file=e.target.files?.[0];if(file)void upload(file,type);e.currentTarget.value='';}}/></label>:<p className="mt-3 text-xs text-muted-foreground">Belgeler yalnızca incelemedeki başvuru için değiştirilebilir.</p>}</div>;})}</div>{docs.error&&<p className="mt-3 text-sm text-muted-foreground">Belgeler yüklenemedi.</p>}</div>}
-      {feedback&&<p role="status" className="text-sm text-primary">{feedback}</p>}</div>}</div></PublicLayout></Guard>;
+    {isMock?<EmptyState title="Bu özellik gerçek API bağlantısı gerektirir" text="Emlakçı başvurusu oluşturmak ve belge yüklemek için gerçek API modunda giriş yapın." href="/ilanlar" action="İlanları keşfet"/>:app.isLoading?<div className="surface p-8"><div className="skeleton h-40"/></div>:hasRealError?<ErrorState retry={()=>app.refetch()} message={showError(app.error)}/>:<div className="grid gap-6">
+      {currentApp&&<div className="surface flex flex-wrap items-center justify-between gap-3 p-5" data-testid="card-application-status">
+        <div>
+          <p className="text-xs text-muted-foreground">Başvuru durumu</p>
+          <p className="mt-1 font-bold" data-testid="text-application-status">{labels[currentApp.status]||currentApp.status}</p>
+        </div>
+        <span className="rounded-full bg-secondary px-3 py-1 text-xs">{new Date(currentApp.updatedAt).toLocaleDateString('tr-TR')}</span>
+        {currentApp.status==='PENDING'&&<p className="w-full text-xs text-muted-foreground">Başvurunuz inceleme aşamasındadır. Onay sürecinin tamamlanması için Vergi Levhası ve Yetki Belgesi dosyalarının ikisi de yüklenmiş olmalıdır.</p>}
+        {currentApp.status==='APPROVED'&&<div className="w-full rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900">Başvurunuz onaylandı. Emlak danışmanı hesabınız aktif edildi.</div>}
+        {currentApp.status==='REJECTED'&&<div className="w-full rounded-lg bg-rose-50 p-3 text-sm text-rose-800"><p className="font-semibold">Başvurunuz reddedildi{currentApp.rejectionReason?`: ${currentApp.rejectionReason}`:''}</p><p className="mt-1 text-xs">Bilgilerinizi düzenleyerek aşağıdaki formdan yeni bir başvuru gönderebilirsiniz. Yeni başvuru oluşturulduktan sonra belgelerinizi tekrar yüklemeniz gerekir.</p></div>}
+      </div>}
+
+      <div className="surface p-6">
+        <h2 className="mb-5 font-display text-xl font-bold">{currentApp?.status==='PENDING'?'Başvuru bilgilerini güncelle':currentApp?.status==='REJECTED'?'Yeni başvuru oluştur':'Firma bilgileri'}</h2>
+        <form className="grid gap-4 sm:grid-cols-2" onSubmit={form.handleSubmit(v=>mutation.mutate(v))}>
+          {fieldConfigs.map(({key,label,type='text',rules})=><label className="grid gap-1.5 text-sm font-semibold" key={key}>{label} *<input className={inputClass} type={type} disabled={isApproved||mutation.isPending} data-testid={`input-app-${key}`} {...form.register(key,rules)}/><span className="text-xs text-destructive">{form.formState.errors[key]?.message}</span></label>)}
+          <label className="grid gap-1.5 text-sm font-semibold sm:col-span-2">Açıklama<textarea className={`${inputClass} h-24 py-3`} disabled={isApproved||mutation.isPending} data-testid="input-app-description" {...form.register('description',{maxLength:{value:2000,message:'Açıklama en fazla 2000 karakter olabilir.'}})}/><span className="text-xs text-destructive">{form.formState.errors.description?.message}</span></label>
+          <button disabled={mutation.isPending||isApproved} data-testid="button-submit-application" className="h-11 rounded-xl bg-primary px-5 font-bold text-white disabled:opacity-60 sm:col-span-2">{mutation.isPending?'Gönderiliyor…':currentApp?.status==='PENDING'?'Başvuruyu güncelle':currentApp?.status==='REJECTED'?'Yeni başvuru oluştur':'Başvuruyu gönder'}</button>
+        </form>
+        <p className="mt-3 text-xs text-muted-foreground">İncelemedeki başvurunuzu güncelleyebilir veya reddedilmiş bir başvuru için yenisini gönderebilirsiniz.</p>
+      </div>
+
+      {currentApp&&<div className="surface p-6" data-testid="section-application-documents">
+        <h2 className="font-display text-xl font-bold">Başvuru belgeleri</h2>
+        <p className="mt-1 text-sm text-muted-foreground">PDF, JPEG veya PNG · dosya başına en fazla 10 MB · Onay için her iki belge de zorunludur</p>
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          {(['TAX_CERTIFICATE','AUTHORIZATION_CERTIFICATE'] as AgentDocumentType[]).map((type)=>{
+            const doc=docs.data?.find(d=>d.documentType===type);
+            const isUploading=uploadingType===type;
+            return <div key={type} className="rounded-xl border border-border p-4" data-testid={`card-document-${type}`}>
+              <p className="font-semibold">{labels[type]||type}</p>
+              {doc?<div className="mt-2">
+                <button type="button" disabled={downloadingId===doc.id} data-testid={`button-download-${type}`} className="text-left text-sm font-semibold text-primary underline disabled:opacity-60" onClick={()=>void download(doc.id,doc.originalName)}>{doc.originalName} · {downloadingId===doc.id?'İndiriliyor…':'İndir'}</button>
+                <p className="mt-1 text-xs text-muted-foreground">{(doc.sizeBytes/1024).toFixed(1)} KB · {new Date(doc.createdAt).toLocaleDateString('tr-TR')}</p>
+              </div>:<p className="mt-2 text-xs text-muted-foreground">Henüz belge eklenmedi</p>}
+              {currentApp.status==='PENDING'?<label className={`mt-4 flex cursor-pointer items-center justify-center rounded-lg border border-dashed border-border px-3 py-3 text-sm font-semibold hover:border-primary ${isUploading?'pointer-events-none opacity-60':''}`}>{isUploading?'Yükleniyor…':doc?'Belgeyi değiştir':'Belge yükle'}<input className="sr-only" type="file" disabled={isUploading} data-testid={`input-file-${type}`} accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" onChange={e=>{const file=e.target.files?.[0];if(file)void upload(file,type);e.currentTarget.value='';}}/></label>:<p className="mt-3 text-xs text-muted-foreground">Belgeler yalnızca incelemedeki başvuru için yüklenebilir veya değiştirilebilir.</p>}
+            </div>;
+          })}
+        </div>
+        {docs.error&&<p className="mt-3 text-sm text-destructive">{showError(docs.error)}</p>}
+      </div>}
+
+      {feedback&&<p role="status" className="text-sm text-primary" data-testid="text-application-feedback">{feedback}</p>}
+      {errorMsg&&<p role="alert" className="text-sm text-destructive" data-testid="text-application-error">{errorMsg}</p>}
+    </div>}</div></PublicLayout></Guard>;
 }
 
 function PanelLayout({ children }: { children: ReactNode }) {
@@ -528,36 +718,36 @@ function HowToListPage() {
     {
       key: 'advisor' as const, title: 'Emlak danışmanı', icon: UserRound,
       description: 'Profesyonel olarak gayrimenkul ilanları yöneten kişiler.',
-      status: 'Sonraki fazda aktif',
+      status: 'Başvuru akışı mevcut',
       intro: 'Başvuru bilgilerini ve belgeleri gönderin; yönetici onayından sonra emlakçı panelinde ilan ve profil işlemleri açılır.',
       infoTitle: 'Mevcut akışta istenen bilgiler',
       infoItems: ['Başvuruda: firma adı, yetkili adı/soyadı, telefon, e-posta, vergi numarası, şehir/ilçe ve adres', 'Başvuru ekranında vergi levhası ve yetki belgesi yükleme alanları', 'Onay sonrası emlakçı profili: firma adı, telefon, e-posta, adres ve açıklama', 'Ayrı bir kişisel mesleki sicil numarası alanı görünmüyor; belge gereklilikleri süreçte doğrulanmalı'],
-      availability: 'Emlakçı başvurusu ve ilan yönetim paneli entegrasyonu sonraki fazlarda devreye alınacaktır.',
-      nextTitle: 'Durum · Yakında',
-      nextDescription: 'Emlakçı başvurusu entegrasyonu bir sonraki fazda kullanıma açılacaktır. Şu an mevcut emlakçı ilanlarını inceleyebilirsiniz.',
-      actionHref: '/ilanlar', actionLabel: 'Mevcut ilanları incele',
+      availability: 'Emlakçı başvurusu ve belge yükleme akışı gerçek API’ye bağlıdır.',
+      nextTitle: 'Sonraki adım',
+      nextDescription: 'Emlakçı başvurusunu ve gerekli belgeleri başvuru ekranından gönderebilirsiniz. Oturum yoksa giriş ekranına yönlendirilirsiniz.',
+      actionHref: '/emlakci-basvuru', actionLabel: 'Emlakçı başvurusuna geç',
       journey: [
-        { title: 'Hesap oluştur veya giriş yap', description: 'Kimlik doğrulama entegrasyonu sonraki fazda açılacaktır.', status: 'Hazırlık' },
-        { title: 'Emlakçı başvurusunu gönder', description: 'Firma/yetkili iletişim bilgileri, vergi levhası ve yetki belgesi adımı sonraki fazdadır.', status: 'Hazırlık' },
-        { title: 'Yönetici incelemesini bekle', description: 'Başvuru durumu ve onay admin akışında yönetilir; süre garantisi yoktur.', status: 'Hazırlık' },
+        { title: 'Hesap oluştur veya giriş yap', description: 'Hesap kaydı ve oturum açma mevcut API işlemleridir.', status: 'Mevcut' },
+        { title: 'Emlakçı başvurusunu gönder', description: 'Firma/yetkili iletişim bilgileri ve vergi numarası girilir; vergi levhası ve yetki belgesi yüklenebilir.', status: 'Mevcut' },
+        { title: 'Yönetici incelemesini bekle', description: 'Başvuru durumu ve onay admin akışında yönetilir; süre garantisi yoktur.', status: 'Mevcut' },
         { title: 'İlan ve profili yönet', description: 'AGENT rolü verilen hesap ilan oluşturabilir, düzenleyebilir ve profilini güncelleyebilir.', status: 'Hazırlık' },
       ],
     },
     {
       key: 'office' as const, title: 'Emlak ofisi', icon: Building2,
       description: 'Ofis bilgilerini paylaşmak ve profesyonel ilan yönetimine başlamak isteyen işletmeler.',
-      status: 'Ekip ve toplu portföy mevcut değil',
+      status: 'Başvuru var · ekip yönetimi yok',
       intro: 'Mevcut emlakçı başvurusu şirket ve yetkili bilgilerini alır. Ekip yönetimi ve toplu portföy yönetimi henüz kullanıma açık değildir.',
       infoTitle: 'Mevcut başvuruda istenen ofis bilgileri',
       infoItems: ['Firma adı, yetkili kişi adı/soyadı ve iletişim bilgileri', 'Vergi numarası, şehir/ilçe ve açık adres', 'Vergi levhası ve yetki belgesi dosyaları', 'Onay sonrası tek AGENT hesabının profil alanları; ekip üyeleri veya toplu ilan alanı yok'],
-      availability: 'Ekip yönetimi ve toplu portföy araçları backend sözleşmesinde bulunmuyor (Henüz kullanıma açık değil). Tekil emlakçı başvurusu sonraki fazda açılacaktır.',
-      nextTitle: 'Durum · Henüz kullanıma açık değil',
-      nextDescription: 'Ofis ekip yönetimi ve toplu portföy yönetimi henüz kullanıma açık değil.',
-      actionHref: '/ilanlar', actionLabel: 'Mevcut ilanları incele',
+      availability: 'Şirket bilgileri aynı emlakçı başvuru API’sine gönderilebilir. Çoklu kullanıcı, ekip rolleri ve toplu ilan yönetimi mevcut değil.',
+      nextTitle: 'Sonraki adım',
+      nextDescription: 'Şirket bilgileri mevcut emlakçı başvuru formunda paylaşılabilir. Ofis ekip yönetimi ve toplu portföy yönetimi henüz kullanıma açık değil.',
+      actionHref: '/emlakci-basvuru', actionLabel: 'Ofis başvurusunu aç',
       journey: [
-        { title: 'Hesap oluştur veya giriş yap', description: 'Başvuru için kullanıcı hesabı gerekir (sonraki faz).', status: 'Hazırlık' },
-        { title: 'Şirket ve yetkili bilgilerini gir', description: 'Mevcut başvuru formu firma, yetkili, vergi ve adres bilgilerini alır.', status: 'Hazırlık' },
-        { title: 'Belgeleri ve başvuruyu incelemeye gönder', description: 'Vergi levhası/yetki belgesi yükleme ve admin incelemesi sonraki fazdadır.', status: 'Hazırlık' },
+        { title: 'Hesap oluştur veya giriş yap', description: 'Başvuru için bir kullanıcı hesabı gerekir.', status: 'Mevcut' },
+        { title: 'Şirket ve yetkili bilgilerini gir', description: 'Mevcut başvuru formu firma, yetkili, vergi ve adres bilgilerini alır.', status: 'Mevcut' },
+        { title: 'Belgeleri ve başvuruyu incelemeye gönder', description: 'Vergi levhası/yetki belgesi yükleme mevcut API akışındadır.', status: 'Mevcut' },
         { title: 'Ekibi ve portföyü birlikte yönet', description: 'Ofis kullanıcıları, ekip yetkileri ve toplu ilan araçları henüz kullanıma açık değil.', status: 'Mevcut değil' },
       ],
     },

@@ -23,6 +23,7 @@ import type {
   LoginRequest,
   LoginResponse,
   RegisterRequest,
+  UserProfile,
 } from '@/types/api';
 
 type AuthValue = {
@@ -35,6 +36,7 @@ type AuthValue = {
   register: (data: RegisterRequest) => Promise<AuthUser>;
   refresh: () => Promise<LoginResponse | null>;
   logout: () => Promise<void>;
+  syncUser: (profile: UserProfile) => void;
 };
 
 const AuthContext = createContext<AuthValue | null>(null);
@@ -144,6 +146,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUser(null);
           queryClient.clear();
         }
+      },
+      syncUser: (profile) => {
+        setUser((prev) =>
+          prev
+            ? {
+                ...prev,
+                firstName: profile.firstName,
+                lastName: profile.lastName,
+                phone: profile.phone,
+                email: profile.email,
+                role: profile.role,
+                isActive: profile.isActive,
+              }
+            : profile,
+        );
       },
     }),
     [user, token, isLoading, queryClient],
