@@ -74,7 +74,7 @@ Auth sütunu:
 | ------ | --------------------------------------- | --------- | ------- | ----------------------------- | ----------------------------------- | ----------------------- |
 | POST   | `/properties`                           | Bearer    | `AGENT` | `CreatePropertyRequest`       | `PropertyRecord`, 201               | İlan oluşturur          |
 | GET    | `/properties/me`                        | Bearer    | `AGENT` | `MyPropertyListQuery`         | `PaginatedResponse<PropertyRecord>` | Kendi ilanları          |
-| GET    | `/properties/me/:id`                    | Bearer    | `AGENT` | —                             | `PropertyRecord`                    | Kendi ilan detayı       |
+| GET    | `/properties/me/:id`                    | Bearer    | `AGENT` | —                             | `OwnerPropertyDetail`               | Kendi ilan detayı       |
 | PATCH  | `/properties/:id`                       | Bearer    | `AGENT` | `UpdatePropertyRequest`       | `PropertyRecord`                    | Kendi ilanını günceller |
 | PATCH  | `/properties/:id/status`                | Bearer    | `AGENT` | `UpdatePropertyStatusRequest` | `PropertyRecord`                    | Durum geçişi            |
 | DELETE | `/properties/:id`                       | Bearer    | `AGENT` | —                             | `DeletePropertyResponse`            | Soft delete             |

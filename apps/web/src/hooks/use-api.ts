@@ -2,7 +2,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiRequestError } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import {
-  adminApi,
+  adminAgentsApi,
+  adminApplicationsApi,
+  adminAuditApi,
+  adminPropertiesApi,
+  adminUsersApi,
+  agentsApi,
   applicationsApi,
   favoritesApi,
   locationsApi,
@@ -30,6 +35,8 @@ export const keys = {
   publicProperties: (q: PublicPropertyListQuery) => ['properties', q] as const,
   property: (id: string) => ['property', id] as const,
   myProperties: (q: MyPropertyListQuery) => ['my-properties', q] as const,
+  myProperty: (id: string) => ['my-property', id] as const,
+  agentMe: ['agent-me'] as const,
   cities: ['cities'] as const,
   districts: (id: string) => ['districts', id] as const,
   neighborhoods: (id: string) => ['neighborhoods', id] as const,
@@ -40,6 +47,19 @@ export const keys = {
   me: ['me'] as const,
   application: ['agent-application', 'me'] as const,
   applicationDocs: ['agent-application', 'documents'] as const,
+  adminUsers: (q: AdminUserListQuery) => ['admin-users', q] as const,
+  adminUser: (id: string) => ['admin-user', id] as const,
+  adminApplications: (q: AdminAgentApplicationListQuery) =>
+    ['admin-agent-applications', q] as const,
+  adminApplication: (id: string) => ['admin-agent-application', id] as const,
+  adminApplicationDocuments: (id: string) =>
+    ['admin-agent-application-documents', id] as const,
+  adminAgents: (q: AdminAgentListQuery) => ['admin-agents', q] as const,
+  adminAgent: (id: string) => ['admin-agent', id] as const,
+  adminProperties: (q: AdminPropertyListQuery) =>
+    ['admin-properties', q] as const,
+  adminProperty: (id: string) => ['admin-property', id] as const,
+  adminAuditLogs: (q: AuditLogListQuery) => ['admin-audit-logs', q] as const,
 };
 
 export const useProperties = (q: PublicPropertyListQuery) =>
@@ -107,10 +127,25 @@ export const useFavorites = (page = 1, limit = 20) =>
     queryFn: () => favoritesApi.getFavorites(page, limit),
   });
 
-export const useMineProperties = (q: MyPropertyListQuery) =>
+export const useMineProperties = (q: MyPropertyListQuery, enabled = true) =>
   useQuery({
     queryKey: keys.myProperties(q),
-    queryFn: () => propertiesApi.mine(q),
+    queryFn: () => propertiesApi.getMyProperties(q),
+    enabled,
+  });
+
+export const useMineProperty = (id: string, enabled = true) =>
+  useQuery({
+    queryKey: keys.myProperty(id),
+    queryFn: () => propertiesApi.getMyProperty(id),
+    enabled: enabled && !!id,
+  });
+
+export const useMyAgentProfile = (enabled = true) =>
+  useQuery({
+    queryKey: keys.agentMe,
+    queryFn: agentsApi.getMyAgentProfile,
+    enabled,
   });
 
 export const useAgent = (slug: string) =>
@@ -279,39 +314,89 @@ export function useToggleFavorite() {
 
 export const useInvalidateMarketplace = () => {
   const qc = useQueryClient();
-  return () => {
+  return (propertyId?: string) => {
     qc.invalidateQueries({ queryKey: ['my-properties'] });
     qc.invalidateQueries({ queryKey: ['properties'] });
-    qc.invalidateQueries({ queryKey: ['property'] });
+    qc.invalidateQueries({ queryKey: ['agent-properties'] });
+    qc.invalidateQueries({ queryKey: ['favorites'] });
+    if (propertyId) {
+      qc.invalidateQueries({ queryKey: keys.property(propertyId) });
+      qc.invalidateQueries({ queryKey: keys.myProperty(propertyId) });
+    } else {
+      qc.invalidateQueries({ queryKey: ['property'] });
+    }
   };
 };
 
-export const useAdminUsers = (q: AdminUserListQuery) =>
+export const useAdminUsers = (q: AdminUserListQuery, enabled = true) =>
   useQuery({
-    queryKey: ['admin-users', q],
-    queryFn: () => adminApi.users(q),
+    queryKey: keys.adminUsers(q),
+    queryFn: () => adminUsersApi.getUsers(q),
+    enabled,
   });
 
-export const useAdminAgents = (q: AdminAgentListQuery) =>
+export const useAdminUser = (id: string, enabled = true) =>
   useQuery({
-    queryKey: ['admin-agents', q],
-    queryFn: () => adminApi.agents(q),
+    queryKey: keys.adminUser(id),
+    queryFn: () => adminUsersApi.getUser(id),
+    enabled: enabled && !!id,
   });
 
-export const useAdminApps = (q: AdminAgentApplicationListQuery) =>
+export const useAdminAgents = (q: AdminAgentListQuery, enabled = true) =>
   useQuery({
-    queryKey: ['admin-apps', q],
-    queryFn: () => adminApi.applications(q),
+    queryKey: keys.adminAgents(q),
+    queryFn: () => adminAgentsApi.getAgents(q),
+    enabled,
   });
 
-export const useAdminProperties = (q: AdminPropertyListQuery) =>
+export const useAdminAgent = (id: string, enabled = true) =>
   useQuery({
-    queryKey: ['admin-properties', q],
-    queryFn: () => propertiesApi.adminList(q),
+    queryKey: keys.adminAgent(id),
+    queryFn: () => adminAgentsApi.getAgent(id),
+    enabled: enabled && !!id,
   });
 
-export const useAdminAudit = (q: AuditLogListQuery) =>
+export const useAdminApps = (
+  q: AdminAgentApplicationListQuery,
+  enabled = true,
+) =>
   useQuery({
-    queryKey: ['admin-audit', q],
-    queryFn: () => adminApi.audit(q),
+    queryKey: keys.adminApplications(q),
+    queryFn: () => adminApplicationsApi.getApplications(q),
+    enabled,
+  });
+
+export const useAdminApplication = (id: string, enabled = true) =>
+  useQuery({
+    queryKey: keys.adminApplication(id),
+    queryFn: () => adminApplicationsApi.getApplication(id),
+    enabled: enabled && !!id,
+  });
+
+export const useAdminApplicationDocuments = (id: string, enabled = true) =>
+  useQuery({
+    queryKey: keys.adminApplicationDocuments(id),
+    queryFn: () => adminApplicationsApi.getApplicationDocuments(id),
+    enabled: enabled && !!id,
+  });
+
+export const useAdminProperties = (q: AdminPropertyListQuery, enabled = true) =>
+  useQuery({
+    queryKey: keys.adminProperties(q),
+    queryFn: () => adminPropertiesApi.getProperties(q),
+    enabled,
+  });
+
+export const useAdminProperty = (id: string, enabled = true) =>
+  useQuery({
+    queryKey: keys.adminProperty(id),
+    queryFn: () => adminPropertiesApi.getProperty(id),
+    enabled: enabled && !!id,
+  });
+
+export const useAdminAudit = (q: AuditLogListQuery, enabled = true) =>
+  useQuery({
+    queryKey: keys.adminAuditLogs(q),
+    queryFn: () => adminAuditApi.getAuditLogs(q),
+    enabled,
   });

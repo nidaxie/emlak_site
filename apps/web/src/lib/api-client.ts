@@ -78,6 +78,54 @@ function resolveErrorMessage(status: number, payload?: ApiError): string {
     return 'Bu başvuru artık inceleme aşamasında olmadığı için güncellenemez.';
   }
 
+  if (status === 403 && rawMessage === 'Agent profile is inactive') {
+    return 'Emlakçı profiliniz pasif durumda olduğu için yeni ilan oluşturulamaz.';
+  }
+
+  if (status === 409 && rawMessage === 'Invalid status transition') {
+    return 'Seçilen ilan durumu geçişi geçerli değil.';
+  }
+
+  if (status === 409 && rawMessage === 'Property image limit reached') {
+    return 'Bir ilanda en fazla 20 canlı fotoğraf bulunabilir.';
+  }
+
+  if (status === 400 && rawMessage === 'Invalid location') {
+    return 'Seçilen şehir, ilçe ve mahalle birbiriyle uyumlu değil.';
+  }
+
+  if (status === 400 && rawMessage === 'Location fields must be updated together') {
+    return 'Şehir, ilçe ve mahalle alanları birlikte güncellenmelidir.';
+  }
+
+  if (status === 400 && rawMessage === 'Net area cannot exceed gross area') {
+    return 'Net alan brüt alandan büyük olamaz.';
+  }
+
+  if (status === 400 && rawMessage === 'Floor cannot exceed total floors') {
+    return 'Bulunduğu kat toplam kat sayısından büyük olamaz.';
+  }
+
+  if (status === 409 && rawMessage === 'Admin cannot deactivate their own account') {
+    return 'Yönetici kendi hesabını pasife alamaz.';
+  }
+
+  if (status === 409 && rawMessage === 'Required documents are missing') {
+    return 'Onay için Vergi Levhası ve Yetki Belgesi dosyalarının ikisi de yüklenmiş olmalıdır.';
+  }
+
+  if (status === 409 && rawMessage === 'User account is inactive') {
+    return 'Kullanıcı hesabı pasif durumda olduğu için başvuru onaylanamaz.';
+  }
+
+  if (status === 409 && rawMessage === 'User is not eligible for approval') {
+    return 'Bu kullanıcı rolü başvuru onayı için uygun değil.';
+  }
+
+  if (status === 409 && rawMessage === 'Agent profile already exists') {
+    return 'Bu kullanıcı için zaten bir emlakçı profili bulunuyor.';
+  }
+
   if (status === 401 && rawMessage === 'Invalid email or password') {
     return 'E-posta veya şifre hatalı. Lütfen bilgilerinizi kontrol edin.';
   }

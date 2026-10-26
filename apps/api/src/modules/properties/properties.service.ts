@@ -208,14 +208,22 @@ export class PropertiesService {
     const profileId = await this.profileId(userId);
     const property = await this.prisma.property.findFirst({
       where: { id, agentProfileId: profileId, deletedAt: null },
-      select: managedSelect,
+      select: { ...managedSelect, images: gallerySelect },
     });
 
     if (!property) {
       throw new NotFoundException('Property not found');
     }
 
-    return presentManaged(property);
+    return {
+      ...presentManaged(property),
+      images: property.images.map((image) => ({
+        id: image.id,
+        url: publicFileUrl(image.fileId)!,
+        sortOrder: image.sortOrder,
+        isCover: image.isCover,
+      })),
+    };
   }
 
   async update(userId: string, id: string, dto: UpdatePropertyDto) {
@@ -501,6 +509,7 @@ export class PropertiesService {
       where: { id },
       select: {
         ...managedSelect,
+        images: gallerySelect,
         agentProfile: {
           select: {
             id: true,
@@ -528,7 +537,15 @@ export class PropertiesService {
       throw new NotFoundException('Property not found');
     }
 
-    return presentAdmin(property);
+    return {
+      ...presentAdmin(property),
+      images: property.images.map((image) => ({
+        id: image.id,
+        url: publicFileUrl(image.fileId)!,
+        sortOrder: image.sortOrder,
+        isCover: image.isCover,
+      })),
+    };
   }
 
   async deactivate(adminId: string, id: string, reason: string) {

@@ -248,6 +248,11 @@ export interface PropertyRecord {
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
+  images?: PropertyImage[];
+}
+
+export interface OwnerPropertyDetail extends PropertyRecord {
+  images: PropertyImage[];
 }
 
 export interface CreatePropertyRequest {
@@ -563,6 +568,7 @@ export interface AdminProperty extends PropertyRecord {
 
 export interface AdminPropertyDetail extends PropertyRecord {
   agent: AdminPropertyDetailAgent;
+  images: PropertyImage[];
 }
 
 export interface AdminPropertyListQuery extends PageQuery {

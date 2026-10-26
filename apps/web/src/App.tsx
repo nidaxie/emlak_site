@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Route, Switch, Link, useLocation, useRoute, useSearch, Router as WouterRouter } from 'wouter';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { useForm, type RegisterOptions } from 'react-hook-form';
 import { AuthProvider, useAuth } from '@/hooks/auth-context';
-import { keys, useAgent, useAgentProperties, useApplication, useApplicationDocs, useApiCities, useApiDistricts, useApiNeighborhoods, useCities, useDistricts, useFavorites, useInvalidateMarketplace, useMineProperties, useNeighborhoods, useProperties, useProperty, useToggleFavorite, useAdminUsers, useAdminAgents, useAdminApps, useAdminProperties, useAdminAudit, useMe } from '@/hooks/use-api';
-import { adminApi, agentsApi, applicationsApi, propertiesApi, usersApi } from '@/services/api';
+import { keys, useAgent, useAgentProperties, useApplication, useApplicationDocs, useApiCities, useApiDistricts, useApiNeighborhoods, useCities, useDistricts, useFavorites, useInvalidateMarketplace, useMineProperties, useMineProperty, useMyAgentProfile, useNeighborhoods, useProperties, useProperty, useToggleFavorite, useAdminUsers, useAdminUser, useAdminAgents, useAdminAgent, useAdminApps, useAdminApplication, useAdminApplicationDocuments, useAdminProperties, useAdminProperty, useAdminAudit, useMe } from '@/hooks/use-api';
+import { adminAgentsApi, adminApplicationsApi, adminPropertiesApi, adminUsersApi, agentsApi, applicationsApi, propertiesApi, propertyImagesApi, usersApi } from '@/services/api';
 import { ApiRequestError, fileUrl } from '@/lib/api-client';
 import { EmptyState, ErrorState, labels, money, area, Pagination, PropertyCardView, SectionTitle, SkeletonGrid, inputClass } from '@/components/market-ui';
 import { ArrowLeft, ArrowRight, BadgeCheck, Building2, ChevronDown, ChevronLeft, ChevronRight, CircleUserRound, Heart, Home, MapPin, Menu, Phone, Search, ShieldCheck, SlidersHorizontal, UserRound, X } from 'lucide-react';
-import type { AgentDocumentType, CreateAgentApplicationRequest, CreatePropertyRequest, PropertyCard, PropertyStatus, PublicPropertyListQuery, RegisterRequest, UpdatePropertyRequest } from '@/types/api';
+import type { AgentDocumentType, CreateAgentApplicationRequest, CreatePropertyRequest, PropertyCard, PropertyImage, PropertyStatus, PublicPropertyListQuery, RegisterRequest, UpdateAgentProfileRequest, UpdatePropertyRequest } from '@/types/api';
 import { useToast } from '@/hooks/use-toast';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -576,44 +576,518 @@ function PanelLayout({ children }: { children: ReactNode }) {
   </Guard>;
 }
 function AgentHome() {
-  const q=useMineProperties({page:1,limit:100});
-  return <PanelLayout><div className="surface p-7"><p className="text-xs font-bold uppercase tracking-[.15em] text-primary">Genel bakış</p><h2 className="mt-2 font-display text-3xl font-extrabold">Portföyünüze hoş geldiniz</h2><p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">İlanlarınızı güncel tutun; yeni bir ilan ekleyerek arayanlarla buluşun.</p><div className="mt-6 flex flex-wrap gap-3"><Link href="/panel/ilanlar/yeni" className="rounded-xl bg-primary px-5 py-3 text-sm font-bold text-white">Yeni ilan oluştur</Link><Link href="/panel/ilanlar" className="rounded-xl border border-border px-5 py-3 text-sm font-bold">İlanlarımı görüntüle</Link></div></div><div className="mt-6 grid gap-4 sm:grid-cols-3"><div className="surface p-5"><small className="text-xs text-muted-foreground">Gösterilen kayıtlar</small><p className="mt-1 text-3xl font-extrabold">{q.data?.items.length??'—'}</p><small className="text-xs text-muted-foreground">Yüklenen ilk sayfa verisi</small></div><div className="surface p-5"><small className="text-xs text-muted-foreground">Yayındaki ilanlar</small><p className="mt-1 text-3xl font-extrabold">{q.data?.items.filter(p=>p.status==='ACTIVE').length??'—'}</p><small className="text-xs text-muted-foreground">Bu liste yanıtındaki aktif kayıt</small></div><Link href="/panel/emlakci-profili" className="surface p-5 hover:border-primary"><small className="text-xs text-muted-foreground">Emlakçı profili</small><p className="mt-2 font-bold">Bilgilerinizi güncelleyin <ArrowRight className="inline" size={15}/></p></Link></div>{q.error&&<p className="mt-4 text-sm text-muted-foreground">İlan özeti yüklenemedi.</p>}</PanelLayout>;
+  const isMock=DATA_MODE==='mock';
+  const q=useMineProperties({page:1,limit:100},!isMock);
+  const profile=useMyAgentProfile(!isMock);
+  if(isMock)return <PanelLayout><EmptyState title="Bu özellik gerçek API bağlantısı gerektirir" text="Emlakçı çalışma alanını kullanmak için gerçek API modunda giriş yapın." href="/ilanlar" action="İlanları keşfet"/></PanelLayout>;
+  const activeCount=q.data?.items.filter(p=>p.status==='ACTIVE').length;
+  const nonActiveCount=q.data?.items.filter(p=>p.status!=='ACTIVE').length;
+  return <PanelLayout>
+    {profile.data&&!profile.data.isActive&&<div role="status" className="mb-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">Emlakçı profiliniz şu anda <b>pasif</b> durumdadır. Profiliniz pasifken public profiliniz ve ilanlarınız katalogda görünmez ve yeni ilan oluşturulamaz.</div>}
+    <div className="surface p-7"><p className="text-xs font-bold uppercase tracking-[.15em] text-primary">Genel bakış</p><h2 className="mt-2 font-display text-3xl font-extrabold">{profile.data?.companyName||'Portföyünüze hoş geldiniz'}</h2><p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">İlanlarınızı güncel tutun; yeni bir ilan ekleyerek arayanlarla buluşun.</p><div className="mt-6 flex flex-wrap gap-3"><Link href="/panel/ilanlar/yeni" className="rounded-xl bg-primary px-5 py-3 text-sm font-bold text-white">Yeni ilan oluştur</Link><Link href="/panel/ilanlar" className="rounded-xl border border-border px-5 py-3 text-sm font-bold">İlanlarımı görüntüle</Link></div></div>
+    <div className="mt-6 grid gap-4 sm:grid-cols-4">
+      <div className="surface p-5"><small className="text-xs text-muted-foreground">Toplam ilan</small><p className="mt-1 text-3xl font-extrabold" data-testid="stat-total-properties">{q.data?.total??'—'}</p><small className="text-xs text-muted-foreground">Silinmemiş tüm kayıtlar</small></div>
+      <div className="surface p-5"><small className="text-xs text-muted-foreground">Yayındaki ilanlar</small><p className="mt-1 text-3xl font-extrabold" data-testid="stat-active-properties">{activeCount??'—'}</p><small className="text-xs text-muted-foreground">İlk 100 kayıttaki aktif ilan</small></div>
+      <div className="surface p-5"><small className="text-xs text-muted-foreground">Pasif / Satıldı / Kiralandı</small><p className="mt-1 text-3xl font-extrabold" data-testid="stat-inactive-properties">{nonActiveCount??'—'}</p><small className="text-xs text-muted-foreground">İlk 100 kayıttaki diğer durumlar</small></div>
+      <Link href="/panel/emlakci-profili" className="surface p-5 hover:border-primary"><small className="text-xs text-muted-foreground">Emlakçı profili · {profile.data?(profile.data.isActive?'Aktif':'Pasif'):'—'}</small><p className="mt-2 font-bold">Bilgilerinizi güncelleyin <ArrowRight className="inline" size={15}/></p></Link>
+    </div>
+    {q.error&&<p className="mt-4 text-sm text-destructive">{showError(q.error)}</p>}
+  </PanelLayout>;
 }
 const transitions:Record<PropertyStatus,PropertyStatus[]>={ACTIVE:['INACTIVE','SOLD','RENTED'],INACTIVE:['ACTIVE'],SOLD:['ACTIVE'],RENTED:['ACTIVE']};
 function AgentPropertiesPage() {
-  const [page,setPage]=useState(1); const q=useMineProperties({page,limit:20}); const qc=useQueryClient(); const [notice,setNotice]=useState('');
-  const action=useMutation({mutationFn:({id,status}:{id:string;status:PropertyStatus})=>propertiesApi.status(id,{status}),onSuccess:()=>{qc.invalidateQueries({queryKey:['my-properties']});setNotice('İlan durumu güncellendi.');}});
-  const remove=useMutation({mutationFn:propertiesApi.remove,onSuccess:()=>qc.invalidateQueries({queryKey:['my-properties']})});
-  return <PanelLayout><div className="flex flex-wrap items-end justify-between gap-3"><div><h2 className="font-display text-2xl font-extrabold">İlanlarım</h2><p className="mt-1 text-sm text-muted-foreground">İlanlarınızı, fiyatlarınızı ve yayın durumlarını yönetin.</p></div><Link href="/panel/ilanlar/yeni" className="rounded-xl bg-primary px-4 py-3 text-sm font-bold text-white">+ Yeni ilan</Link></div>{notice&&<p className="mt-3 text-sm text-primary">{notice}</p>}
-    <div className="mt-5 grid gap-3">{q.isLoading?[1,2,3].map(i=><div className="surface p-5" key={i}><div className="skeleton h-14"/></div>):q.error?<ErrorState retry={()=>q.refetch()} message={showError(q.error)}/>:q.data?.items.length?q.data.items.map(p=><article key={p.id} className="surface grid gap-4 p-5 md:grid-cols-[1fr_auto]"><div><div className="flex flex-wrap items-center gap-2"><h3 className="font-bold">{p.title}</h3><span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-semibold text-primary">{labels[p.status]}</span></div><p className="mt-2 text-lg font-extrabold text-primary">{money(p.price)} <span className="text-xs font-normal text-muted-foreground">· {labels[p.listingType]} · {labels[p.propertyType]}</span></p><p className="mt-1 text-xs text-muted-foreground">{p.city} · {new Date(p.createdAt).toLocaleDateString('tr-TR')}</p></div><div className="flex flex-wrap items-center gap-2"><Link href={`/panel/ilanlar/${p.id}/duzenle`} className="rounded-lg border border-border px-3 py-2 text-sm font-semibold">Düzenle</Link><select aria-label="İlan durumunu değiştir" className="h-10 rounded-lg border border-border bg-background px-2 text-sm" value="" onChange={e=>{if(e.target.value)action.mutate({id:p.id,status:e.target.value as PropertyStatus});e.currentTarget.value='';}}><option value="">Durum değiştir</option>{transitions[p.status].map(s=><option key={s} value={s}>{labels[s]}</option>)}</select><button className="rounded-lg border border-destructive/30 px-3 py-2 text-sm text-destructive" onClick={()=>{if(window.confirm('İlanı silmek istediğinize emin misiniz?'))remove.mutate(p.id);}}>Sil</button></div></article>):<EmptyState title="Henüz ilan eklemediniz" text="İlk ilanınızı oluşturarak portföyünüzü paylaşmaya başlayın." href="/panel/ilanlar/yeni" action="İlan oluştur"/>}</div>{q.data&&<Pagination page={q.data.page} limit={q.data.limit} total={q.data.total} onChange={setPage}/>}</PanelLayout>;
+  const isMock=DATA_MODE==='mock';
+  const [page,setPage]=useState(1); const [statusFilter,setStatusFilter]=useState<PropertyStatus|''>('');
+  const q=useMineProperties({page,limit:20,...(statusFilter?{status:statusFilter}:{})},!isMock);
+  const invalidate=useInvalidateMarketplace(); const {toast}=useToast();
+  const [notice,setNotice]=useState(''); const [errorMsg,setErrorMsg]=useState('');
+  const action=useMutation({
+    mutationFn:({id,status}:{id:string;status:PropertyStatus})=>propertiesApi.updatePropertyStatus(id,{status}),
+    onSuccess:(_res,vars)=>{
+      invalidate(vars.id);
+      setErrorMsg('');
+      setNotice('İlan durumu güncellendi.');
+      toast({title:'İlan durumu güncellendi.'});
+    },
+    onError:(err)=>{setNotice('');setErrorMsg(showError(err));},
+  });
+  const remove=useMutation({
+    mutationFn:(id:string)=>propertiesApi.deleteProperty(id),
+    onSuccess:(_res,deletedId)=>{
+      invalidate(deletedId);
+      setErrorMsg('');
+      setNotice('İlan silindi.');
+      toast({title:'İlan silindi.'});
+    },
+    onError:(err)=>{setNotice('');setErrorMsg(showError(err));},
+  });
+  if(isMock)return <PanelLayout><EmptyState title="Bu özellik gerçek API bağlantısı gerektirir" text="İlanlarınızı yönetmek için gerçek API modunda giriş yapın." href="/ilanlar" action="İlanları keşfet"/></PanelLayout>;
+  return <PanelLayout>
+    <div className="flex flex-wrap items-end justify-between gap-3">
+      <div><h2 className="font-display text-2xl font-extrabold">İlanlarım</h2><p className="mt-1 text-sm text-muted-foreground">İlanlarınızı, fiyatlarınızı ve yayın durumlarını yönetin.</p></div>
+      <div className="flex flex-wrap items-center gap-3">
+        <select aria-label="Duruma göre filtrele" className="h-11 rounded-xl border border-input bg-background px-3 text-sm" value={statusFilter} onChange={e=>{setStatusFilter(e.target.value as PropertyStatus|'');setPage(1);}} data-testid="select-my-properties-status">
+          <option value="">Tüm durumlar</option>
+          {(['ACTIVE','INACTIVE','SOLD','RENTED'] as PropertyStatus[]).map(s=><option key={s} value={s}>{labels[s]}</option>)}
+        </select>
+        <Link href="/panel/ilanlar/yeni" className="rounded-xl bg-primary px-4 py-3 text-sm font-bold text-white" data-testid="link-create-property">+ Yeni ilan</Link>
+      </div>
+    </div>
+    {notice&&<p role="status" className="mt-3 text-sm text-primary">{notice}</p>}
+    {errorMsg&&<p role="alert" className="mt-3 text-sm text-destructive">{errorMsg}</p>}
+    <div className="mt-5 grid gap-3">
+      {q.isLoading?[1,2,3].map(i=><div className="surface p-5" key={i}><div className="skeleton h-14"/></div>):q.error?<ErrorState retry={()=>q.refetch()} message={showError(q.error)}/>:q.data?.items.length?q.data.items.map(p=><article key={p.id} className="surface grid gap-4 p-5 md:grid-cols-[1fr_auto]" data-testid={`row-my-property-${p.id}`}>
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="font-bold">{p.title}</h3>
+            <span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-semibold text-primary" data-testid={`badge-status-${p.id}`}>{labels[p.status]}</span>
+          </div>
+          <p className="mt-2 text-lg font-extrabold text-primary">{money(p.price)} <span className="text-xs font-normal text-muted-foreground">· {labels[p.listingType]} · {labels[p.propertyType]} · {p.rooms}+{p.livingRooms} · {area(p.grossAreaM2)} m²</span></p>
+          <p className="mt-1 text-xs text-muted-foreground">{p.neighborhood}, {p.district}, {p.city} · {new Date(p.createdAt).toLocaleDateString('tr-TR')}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {p.status==='ACTIVE'&&<Link href={`/ilan/${p.id}`} className="rounded-lg border border-border px-3 py-2 text-sm text-muted-foreground hover:text-foreground">İlanı gör</Link>}
+          <Link href={`/panel/ilanlar/${p.id}/duzenle`} className="rounded-lg border border-border px-3 py-2 text-sm font-semibold" data-testid={`link-edit-property-${p.id}`}>Düzenle</Link>
+          <select aria-label="İlan durumunu değiştir" disabled={action.isPending} data-testid={`select-status-${p.id}`} className="h-10 rounded-lg border border-border bg-background px-2 text-sm disabled:opacity-60" value="" onChange={e=>{if(e.target.value)action.mutate({id:p.id,status:e.target.value as PropertyStatus});e.currentTarget.value='';}}>
+            <option value="">Durum değiştir</option>
+            {transitions[p.status].map(s=><option key={s} value={s}>{labels[s]}</option>)}
+          </select>
+          <button type="button" disabled={remove.isPending} data-testid={`button-delete-property-${p.id}`} className="rounded-lg border border-destructive/30 px-3 py-2 text-sm text-destructive disabled:opacity-60" onClick={()=>{if(window.confirm('İlanı silmek istediğinize emin misiniz?'))remove.mutate(p.id);}}>Sil</button>
+        </div>
+      </article>):<EmptyState title={statusFilter?'Bu durumda ilanınız bulunmuyor':'Henüz ilan eklemediniz'} text={statusFilter?'Farklı bir durum filtresi seçerek diğer ilanlarınızı görüntüleyebilirsiniz.':'İlk ilanınızı oluşturarak portföyünüzü paylaşmaya başlayın.'} href="/panel/ilanlar/yeni" action="İlan oluştur"/>}
+    </div>
+    {q.data&&<Pagination page={q.data.page} limit={q.data.limit} total={q.data.total} onChange={setPage}/>}
+  </PanelLayout>;
 }
 function PropertyEditor({edit=false}:{edit?:boolean}) {
-  const [,params]=useRoute('/panel/ilanlar/:id/duzenle'); const id=edit?params?.id||'':''; const [,go]=useLocation(); const qc=useQueryClient(); const invalidate=useInvalidateMarketplace(); const cities=useApiCities(); const [cityId,setCityId]=useState(''),[districtId,setDistrictId]=useState(''),[uploads,setUploads]=useState<{id:string;url:string;isCover:boolean}[]>([]); const [message,setMessage]=useState('');
+  const isMock=DATA_MODE==='mock';
+  const [,params]=useRoute('/panel/ilanlar/:id/duzenle'); const id=edit?params?.id||'':'';
+  const [,go]=useLocation(); const qc=useQueryClient(); const invalidate=useInvalidateMarketplace(); const {toast}=useToast();
+  const cities=useApiCities();
+  const [cityId,setCityId]=useState(''),[districtId,setDistrictId]=useState('');
+  const [uploads,setUploads]=useState<PropertyImage[]>([]);
+  const [imageBusy,setImageBusy]=useState(false);
+  const [message,setMessage]=useState(''); const [errorMsg,setErrorMsg]=useState('');
   const districts=useApiDistricts(cityId), neighborhoods=useApiNeighborhoods(districtId);
-  const record=useQuery({queryKey:['my-property',id],queryFn:()=>propertiesApi.mineDetail(id),enabled:edit&&!!id});
-  const form=useForm<CreatePropertyRequest>({defaultValues:{title:'',description:'',listingType:'SALE',propertyType:'APARTMENT',price:'',grossAreaM2:'',rooms:0,livingRooms:0,cityId:'',districtId:'',neighborhoodId:'',address:'',latitude:'',longitude:'',isFurnished:false,hasBalcony:false,hasElevator:false,hasParking:false,inSite:false}});
-  useEffect(()=>{if(record.data){const r=record.data;setCityId(r.cityId);setDistrictId(r.districtId);form.reset({title:r.title,description:r.description,listingType:r.listingType,propertyType:r.propertyType,price:r.price,grossAreaM2:r.grossAreaM2,...(r.netAreaM2?{netAreaM2:r.netAreaM2}:{}),rooms:r.rooms,livingRooms:r.livingRooms,...(r.buildingAge!==null?{buildingAge:r.buildingAge}:{}),...(r.floor!==null?{floor:r.floor}:{}),...(r.totalFloors!==null?{totalFloors:r.totalFloors}:{}),...(r.heatingType?{heatingType:r.heatingType}:{}),cityId:r.cityId,districtId:r.districtId,neighborhoodId:r.neighborhoodId,address:r.address,latitude:r.latitude,longitude:r.longitude,isFurnished:r.isFurnished,hasBalcony:r.hasBalcony,hasElevator:r.hasElevator,hasParking:r.hasParking,inSite:r.inSite});}},[record.data,form]);
-  const mutation=useMutation({mutationFn:(v:CreatePropertyRequest)=>{const data:CreatePropertyRequest={...v};if(!data.netAreaM2?.trim())delete data.netAreaM2;(['buildingAge','floor','totalFloors'] as const).forEach(key=>{if(!Number.isFinite(data[key]))delete data[key];});if(!data.heatingType)delete data.heatingType;return edit?propertiesApi.update(id,data as UpdatePropertyRequest):propertiesApi.create(data);},onSuccess:async result=>{invalidate();await qc.invalidateQueries({queryKey:['my-property',id]});if(!edit){go(`/panel/ilanlar/${result.id}/duzenle`);}setMessage('İlan bilgileri kaydedildi.');}});
-  const upload=async(file:File)=>{if(file.size>10*1024*1024){setMessage('Fotoğraf 10 MB sınırını aşamaz.');return;}try{const result=await propertiesApi.uploadImage(id,file);setUploads(prev=>[...prev,{id:result.id,url:result.url,isCover:result.isCover}]);setMessage('Fotoğraf yüklendi.');}catch(e){setMessage(showError(e));}};
-  const addFiles=async(files:FileList|null)=>{if(!files)return;for(const file of Array.from(files)){if(uploads.length>=20){setMessage('Bir ilanda en fazla 20 canlı fotoğraf olabilir.');break;}await upload(file);}};
-  const chooseCover=async(imageId:string)=>{try{await propertiesApi.coverImage(id,imageId);setUploads(xs=>xs.map(x=>({...x,isCover:x.id===imageId})));}catch(e){setMessage(showError(e));}};
-  const deleteImage=async(imageId:string)=>{try{await propertiesApi.deleteImage(id,imageId);setUploads(xs=>xs.filter(x=>x.id!==imageId));}catch(e){setMessage(showError(e));}};
-  const reorder=async(from:number,to:number)=>{const next=[...uploads];const [item]=next.splice(from,1);next.splice(to,0,item);setUploads(next);try{await propertiesApi.orderImages(id,next.map(x=>x.id));}catch(e){setMessage(showError(e));}};
-  const field=(name:keyof CreatePropertyRequest,label:string,type='text',required=true,placeholder?:string)=><label key={name} className="grid gap-1.5 text-sm font-semibold">{label}{required?' *':''}<input className={inputClass} type={type} placeholder={placeholder} {...form.register(name,{required:required?`${label} zorunludur.`:false, ...(type==='number'?{valueAsNumber:true}:{}),...(name==='title'?{minLength:{value:5,message:'En az 5 karakter girin.'},maxLength:{value:160,message:'En fazla 160 karakter olabilir.'}}:{}),...(name==='description'?{minLength:{value:20,message:'En az 20 karakter girin.'},maxLength:{value:5000,message:'En fazla 5000 karakter olabilir.'}}:{})})}/><span className="text-xs text-destructive">{form.formState.errors[name]?.message as string}</span></label>;
+  const record=useMineProperty(id,edit&&!isMock);
+
+  const form=useForm<CreatePropertyRequest>({
+    defaultValues:{
+      title:'',
+      description:'',
+      listingType:'SALE',
+      propertyType:'APARTMENT',
+      price:'',
+      grossAreaM2:'',
+      netAreaM2:'',
+      rooms:0,
+      livingRooms:0,
+      cityId:'',
+      districtId:'',
+      neighborhoodId:'',
+      address:'',
+      latitude:'',
+      longitude:'',
+      isFurnished:false,
+      hasBalcony:false,
+      hasElevator:false,
+      hasParking:false,
+      inSite:false,
+    },
+  });
+
+  useEffect(()=>{
+    if(record.data){
+      const r=record.data;
+      setCityId(r.cityId);
+      setDistrictId(r.districtId);
+      setUploads((r.images??[]).slice().sort((a,b)=>a.sortOrder-b.sortOrder));
+      form.reset({
+        title:r.title,
+        description:r.description,
+        listingType:r.listingType,
+        propertyType:r.propertyType,
+        price:r.price,
+        grossAreaM2:r.grossAreaM2,
+        netAreaM2:r.netAreaM2??'',
+        rooms:r.rooms,
+        livingRooms:r.livingRooms,
+        ...(r.buildingAge!==null?{buildingAge:r.buildingAge}:{buildingAge:undefined}),
+        ...(r.floor!==null?{floor:r.floor}:{floor:undefined}),
+        ...(r.totalFloors!==null?{totalFloors:r.totalFloors}:{totalFloors:undefined}),
+        ...(r.heatingType?{heatingType:r.heatingType}:{heatingType:undefined}),
+        cityId:r.cityId,
+        districtId:r.districtId,
+        neighborhoodId:r.neighborhoodId,
+        address:r.address,
+        latitude:r.latitude,
+        longitude:r.longitude,
+        isFurnished:r.isFurnished,
+        hasBalcony:r.hasBalcony,
+        hasElevator:r.hasElevator,
+        hasParking:r.hasParking,
+        inSite:r.inSite,
+      });
+    }
+  },[record.data,form]);
+
+  const mutation=useMutation({
+    mutationFn:async(v:CreatePropertyRequest)=>{
+      if(!v.cityId||!v.districtId||!v.neighborhoodId){
+        throw new ApiRequestError(400,{statusCode:400,message:'Lütfen şehir, ilçe ve mahalle seçimlerini tamamlayın.',error:'Bad Request',timestamp:new Date().toISOString(),path:'/api/v1/properties'});
+      }
+      const gross=Number(v.grossAreaM2);
+      const net=v.netAreaM2?.trim()?Number(v.netAreaM2.trim()):undefined;
+      if(net!==undefined&&net>gross){
+        throw new ApiRequestError(400,{statusCode:400,message:'Net area cannot exceed gross area',error:'Bad Request',timestamp:new Date().toISOString(),path:'/api/v1/properties'});
+      }
+      if(Number.isFinite(v.floor)&&Number.isFinite(v.totalFloors)&&(v.floor as number)>(v.totalFloors as number)){
+        throw new ApiRequestError(400,{statusCode:400,message:'Floor cannot exceed total floors',error:'Bad Request',timestamp:new Date().toISOString(),path:'/api/v1/properties'});
+      }
+      const data:CreatePropertyRequest={
+        title:v.title.trim(),
+        description:v.description.trim(),
+        listingType:v.listingType,
+        propertyType:v.propertyType,
+        price:v.price.trim(),
+        grossAreaM2:v.grossAreaM2.trim(),
+        ...(v.netAreaM2?.trim()?{netAreaM2:v.netAreaM2.trim()}:{}),
+        rooms:Number(v.rooms),
+        livingRooms:Number(v.livingRooms),
+        ...(Number.isFinite(v.buildingAge)?{buildingAge:Number(v.buildingAge)}:{}),
+        ...(Number.isFinite(v.floor)?{floor:Number(v.floor)}:{}),
+        ...(Number.isFinite(v.totalFloors)?{totalFloors:Number(v.totalFloors)}:{}),
+        ...(v.heatingType?{heatingType:v.heatingType}:{}),
+        cityId:v.cityId,
+        districtId:v.districtId,
+        neighborhoodId:v.neighborhoodId,
+        address:v.address.trim(),
+        latitude:v.latitude.trim(),
+        longitude:v.longitude.trim(),
+        isFurnished:Boolean(v.isFurnished),
+        hasBalcony:Boolean(v.hasBalcony),
+        hasElevator:Boolean(v.hasElevator),
+        hasParking:Boolean(v.hasParking),
+        inSite:Boolean(v.inSite),
+      };
+      return edit
+        ? propertiesApi.updateProperty(id,data as UpdatePropertyRequest)
+        : propertiesApi.createProperty(data);
+    },
+    onSuccess:async result=>{
+      qc.setQueryData(keys.myProperty(result.id),(prev:typeof record.data)=>({
+        ...result,
+        images:result.images??prev?.images??uploads,
+      }));
+      invalidate(result.id);
+      setErrorMsg('');
+      const msg=edit?'İlan bilgileri güncellendi.':'İlan oluşturuldu. Şimdi fotoğraflarınızı ekleyebilirsiniz.';
+      setMessage(msg);
+      toast({title:edit?'İlan güncellendi.':'İlan oluşturuldu.'});
+      if(!edit){
+        go(`/panel/ilanlar/${result.id}/duzenle`);
+      }
+    },
+    onError:(err)=>{
+      setMessage('');
+      setErrorMsg(showError(err));
+    },
+  });
+
+  const upload=async(file:File)=>{
+    const allowedMimes=['image/jpeg','image/png','image/webp'];
+    const lower=file.name.toLowerCase();
+    const validExt=lower.endsWith('.jpg')||lower.endsWith('.jpeg')||lower.endsWith('.png')||lower.endsWith('.webp');
+    if((file.type&&!allowedMimes.includes(file.type))||(!file.type&&!validExt)){
+      setErrorMsg('Yalnızca JPEG, PNG veya WebP formatında fotoğraf yüklenebilir.');
+      return;
+    }
+    if(file.size>10*1024*1024){
+      setErrorMsg('Fotoğraf 10 MB sınırını aşamaz.');
+      return;
+    }
+    setImageBusy(true);
+    setErrorMsg('');
+    try{
+      const result=await propertyImagesApi.uploadPropertyImage(id,file);
+      setUploads(prev=>[...prev,{id:result.id,url:result.url,sortOrder:result.sortOrder,isCover:result.isCover}].sort((a,b)=>a.sortOrder-b.sortOrder));
+      invalidate(id);
+      setMessage('Fotoğraf yüklendi.');
+      toast({title:'Fotoğraf yüklendi.'});
+    }catch(e){
+      setErrorMsg(showError(e));
+    }finally{
+      setImageBusy(false);
+    }
+  };
+
+  const addFiles=async(files:FileList|null)=>{
+    if(!files)return;
+    let currentCount=uploads.length;
+    for(const file of Array.from(files)){
+      if(currentCount>=20){
+        setErrorMsg('Bir ilanda en fazla 20 canlı fotoğraf olabilir.');
+        break;
+      }
+      await upload(file);
+      currentCount+=1;
+    }
+  };
+
+  const chooseCover=async(imageId:string)=>{
+    setImageBusy(true);
+    setErrorMsg('');
+    try{
+      await propertyImagesApi.setCoverImage(id,imageId);
+      setUploads(xs=>xs.map(x=>({...x,isCover:x.id===imageId})));
+      invalidate(id);
+      setMessage('Kapak fotoğrafı güncellendi.');
+    }catch(e){
+      setErrorMsg(showError(e));
+    }finally{
+      setImageBusy(false);
+    }
+  };
+
+  const deleteImage=async(imageId:string)=>{
+    setImageBusy(true);
+    setErrorMsg('');
+    try{
+      await propertyImagesApi.deletePropertyImage(id,imageId);
+      setUploads(xs=>{
+        const removed=xs.find(x=>x.id===imageId);
+        const remaining=xs.filter(x=>x.id!==imageId);
+        if(removed?.isCover&&remaining.length>0&&!remaining.some(x=>x.isCover)){
+          return remaining.map((x,idx)=>({...x,isCover:idx===0}));
+        }
+        return remaining;
+      });
+      invalidate(id);
+      setMessage('Fotoğraf silindi.');
+    }catch(e){
+      setErrorMsg(showError(e));
+    }finally{
+      setImageBusy(false);
+    }
+  };
+
+  const reorder=async(from:number,to:number)=>{
+    const previous=[...uploads];
+    const next=[...uploads];
+    const [item]=next.splice(from,1);
+    next.splice(to,0,item);
+    const reindexed=next.map((img,idx)=>({...img,sortOrder:idx}));
+    setUploads(reindexed);
+    setImageBusy(true);
+    setErrorMsg('');
+    try{
+      await propertyImagesApi.updateImageOrder(id,reindexed.map(x=>x.id));
+      invalidate(id);
+      setMessage('Fotoğraf sıralaması güncellendi.');
+    }catch(e){
+      setUploads(previous);
+      setErrorMsg(showError(e));
+    }finally{
+      setImageBusy(false);
+    }
+  };
+
+  const field=(name:keyof CreatePropertyRequest,label:string,type='text',required=true,placeholder?:string,extraRules?:RegisterOptions<CreatePropertyRequest,keyof CreatePropertyRequest>)=><label key={name} className="grid gap-1.5 text-sm font-semibold">{label}{required?' *':''}<input className={inputClass} type={type} step={type==='number'?'1':undefined} placeholder={placeholder} data-testid={`input-prop-${name}`} {...form.register(name,{required:required?`${label} zorunludur.`:false,...(type==='number'?{setValueAs:(v:string)=>v===''||v===null||v===undefined?undefined:Number(v)}:{}),...(name==='title'?{minLength:{value:5,message:'En az 5 karakter girin.'},maxLength:{value:160,message:'En fazla 160 karakter olabilir.'}}:{}),...(name==='address'?{minLength:{value:5,message:'Açık adres en az 5 karakter olmalıdır.'},maxLength:{value:300,message:'Açık adres en fazla 300 karakter olabilir.'}}:{}),...extraRules})}/><span className="text-xs text-destructive">{form.formState.errors[name]?.message as string}</span></label>;
+
+  if(isMock)return <PanelLayout><EmptyState title="Bu özellik gerçek API bağlantısı gerektirir" text="İlan oluşturmak ve düzenlemek için gerçek API modunda giriş yapın." href="/ilanlar" action="İlanları keşfet"/></PanelLayout>;
   if(edit&&record.isLoading)return <PanelLayout><div className="surface p-8"><div className="skeleton h-80"/></div></PanelLayout>;
-  return <PanelLayout><div className="mb-5"><Link href="/panel/ilanlar" className="mb-3 inline-flex items-center gap-2 text-sm text-muted-foreground"><ArrowLeft size={15}/> İlanlara dön</Link><h2 className="font-display text-2xl font-extrabold">{edit?'İlanı düzenle':'Yeni ilan oluştur'}</h2><p className="mt-1 text-sm text-muted-foreground">İlanınızı doğru ve eksiksiz bilgilerle yayınlayın.</p></div>{record.error&&<ErrorState message={showError(record.error)}/>}<form className="grid gap-5" onSubmit={form.handleSubmit(v=>{setMessage('');mutation.mutate(v);})}>
-    <div className="surface p-6"><h3 className="mb-5 font-display text-xl font-bold">İlan bilgileri</h3><div className="grid gap-4 sm:grid-cols-2">{field('title','İlan başlığı','text',true,'5–160 karakter')}{field('price','Fiyat (₺)','text',true,'Örn. 4250000.50')}<FilterSelect label="İlan türü" value={form.watch('listingType')} onChange={v=>form.setValue('listingType',v as CreatePropertyRequest['listingType'])} options={[['SALE','Satılık'],['RENT','Kiralık']]}/><FilterSelect label="Emlak tipi" value={form.watch('propertyType')} onChange={v=>form.setValue('propertyType',v as CreatePropertyRequest['propertyType'])} options={['APARTMENT','HOUSE','VILLA','LAND','WORKPLACE'].map(k=>[k,labels[k]])}/>{field('grossAreaM2','Brüt alan (m²)','text',true)}{field('netAreaM2','Net alan (m²)','text',false)}{field('rooms','Oda sayısı','number')}{field('livingRooms','Salon sayısı','number')}{field('buildingAge','Bina yaşı','number',false)}{field('floor','Bulunduğu kat','number',false)}{field('totalFloors','Toplam kat','number',false)}<FilterSelect label="Isıtma" value={form.watch('heatingType')||''} onChange={v=>form.setValue('heatingType',v? v as NonNullable<CreatePropertyRequest['heatingType']>:undefined)} options={['COMBI','CENTRAL','FLOOR_HEATING','STOVE','NONE','OTHER'].map(k=>[k,labels[k]])} empty="Belirtilmedi"/><label className="grid gap-2 text-sm font-semibold sm:col-span-2">Açıklama<textarea className={`${inputClass} h-32 py-3`} {...form.register('description',{required:true,minLength:20,maxLength:5000})}/><span className="text-xs text-destructive">{form.formState.errors.description?.message as string}</span></label></div></div>
-    <div className="surface p-6"><h3 className="mb-5 font-display text-xl font-bold">Konum</h3><div className="grid gap-4 sm:grid-cols-3"><FilterSelect label="Şehir" value={cityId} onChange={v=>{setCityId(v);setDistrictId('');form.setValue('cityId',v);form.setValue('districtId','');form.setValue('neighborhoodId','');}} options={(cities.data||[]).map(c=>[c.id,c.name])}/><FilterSelect label="İlçe" value={districtId} onChange={v=>{setDistrictId(v);form.setValue('districtId',v);form.setValue('neighborhoodId','');}} options={(districts.data||[]).map(c=>[c.id,c.name])} disabled={!cityId}/><FilterSelect label="Mahalle" value={form.watch('neighborhoodId')} onChange={v=>form.setValue('neighborhoodId',v)} options={(neighborhoods.data||[]).map(c=>[c.id,c.name])} disabled={!districtId}/>{field('address','Açık adres','text',true)}{field('latitude','Enlem','text',true,'37.870000')}{field('longitude','Boylam','text',true,'32.490000')}</div><p className="mt-3 text-xs text-muted-foreground">Şehir, ilçe ve mahalle seçimleri gerçek konum kayıtlarından alınır.</p></div>
-    <div className="surface p-6"><h3 className="mb-4 font-display text-xl font-bold">Ek özellikler</h3><div className="grid gap-3 sm:grid-cols-2">{[['isFurnished','Eşyalı'],['hasBalcony','Balkon'],['hasElevator','Asansör'],['hasParking','Otopark'],['inSite','Site içinde']].map(([k,l])=><label key={k} className="flex items-center gap-3 rounded-xl border border-border p-3 text-sm font-medium"><input type="checkbox" className="h-4 w-4 accent-primary" {...form.register(k as keyof CreatePropertyRequest)}/>{l}</label>)}</div></div>
-    <div className="surface p-6"><h3 className="font-display text-xl font-bold">Fotoğraflar</h3><p className="mt-1 text-sm text-muted-foreground">JPEG, PNG veya WebP · en fazla 10 MB / fotoğraf · en çok 20 fotoğraf</p>{edit?<><label className="mt-4 flex cursor-pointer items-center justify-center rounded-xl border border-dashed border-border p-8 text-center text-sm font-semibold hover:border-primary">Fotoğraf seçin<input className="sr-only" type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={e=>void addFiles(e.target.files)}/></label><div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">{uploads.map((image,i)=><div key={image.id} className="relative overflow-hidden rounded-xl border border-border"><img src={fileUrl(image.url)||''} alt="Yüklenen ilan fotoğrafı" className="aspect-square w-full object-cover"/><div className="flex items-center justify-between p-2"><button type="button" onClick={()=>void chooseCover(image.id)} className="text-xs font-semibold text-primary">{image.isCover?'Kapak':'Kapak yap'}</button><button type="button" onClick={()=>void deleteImage(image.id)} className="text-xs text-destructive">Sil</button></div>{i>0&&<button type="button" className="absolute left-2 top-2 rounded-full bg-white p-1" onClick={()=>void reorder(i,i-1)} aria-label="Sola taşı"><ChevronLeft size={15}/></button>}{i<uploads.length-1&&<button type="button" className="absolute right-2 top-2 rounded-full bg-white p-1" onClick={()=>void reorder(i,i+1)} aria-label="Sağa taşı"><ChevronRight size={15}/></button>}</div>)}</div>{!uploads.length&&<p className="mt-3 text-xs text-muted-foreground">Bu oturumda yüklediğiniz fotoğraflar burada listelenir. Mevcut fotoğraf bilgileri bu kayıt yanıtında sunulmuyor.</p>}</>:<p className="mt-3 rounded-xl bg-muted p-4 text-sm text-muted-foreground">İlanı ilk kez kaydettikten sonra fotoğraflarınızı ekleyebilirsiniz.</p>}</div>
-    {message&&<p role="status" className="text-sm text-primary">{message}</p>}{mutation.error&&<p role="alert" className="text-sm text-destructive">{showError(mutation.error)}</p>}<div className="flex flex-wrap justify-end gap-3"><Link href="/panel/ilanlar" className="rounded-xl border border-border px-5 py-3 font-semibold">Vazgeç</Link><button className="rounded-xl bg-primary px-6 py-3 font-bold text-white" disabled={mutation.isPending}>{mutation.isPending?'Kaydediliyor…':edit?'İlanı kaydet':'İlanı oluştur'}</button></div></form></PanelLayout>;
+  if(edit&&record.error){
+    const notFound=record.error instanceof ApiRequestError&&record.error.status===404;
+    return <PanelLayout>{notFound?<EmptyState title="İlan bulunamadı" text="Bu ilan mevcut değil, silinmiş veya başka bir hesaba ait." href="/panel/ilanlar" action="İlanlarıma dön"/>:<ErrorState retry={()=>record.refetch()} message={showError(record.error)}/>}</PanelLayout>;
+  }
+
+  return <PanelLayout>
+    <div className="mb-5">
+      <Link href="/panel/ilanlar" className="mb-3 inline-flex items-center gap-2 text-sm text-muted-foreground"><ArrowLeft size={15}/> İlanlara dön</Link>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="font-display text-2xl font-extrabold">{edit?'İlanı düzenle':'Yeni ilan oluştur'}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">İlanınızı doğru ve eksiksiz bilgilerle yayınlayın.</p>
+        </div>
+        {edit&&record.data&&<span className="rounded-full bg-secondary px-3 py-1 text-xs font-bold text-primary" data-testid="badge-editor-status">Durum: {labels[record.data.status]} · {record.data.currency}</span>}
+      </div>
+    </div>
+
+    <form className="grid gap-5" onSubmit={form.handleSubmit(v=>{setMessage('');setErrorMsg('');mutation.mutate(v);})}>
+      <div className="surface p-6">
+        <h3 className="mb-5 font-display text-xl font-bold">İlan bilgileri</h3>
+        <div className="grid gap-4 sm:grid-cols-2">
+          {field('title','İlan başlığı','text',true,'5–160 karakter')}
+          {field('price','Fiyat (₺)','text',true,'Örn. 4250000.50',{pattern:{value:/^\d+(\.\d{1,2})?$/,message:'Geçerli bir fiyat girin (örn. 4250000.50).'},validate:(val)=>Number(val)>0||'Fiyat 0’dan büyük olmalıdır.'})}
+          <FilterSelect label="İlan türü" value={form.watch('listingType')} onChange={v=>form.setValue('listingType',(v||'SALE') as CreatePropertyRequest['listingType'])} options={[['SALE','Satılık'],['RENT','Kiralık']]}/>
+          <FilterSelect label="Emlak tipi" value={form.watch('propertyType')} onChange={v=>form.setValue('propertyType',(v||'APARTMENT') as CreatePropertyRequest['propertyType'])} options={['APARTMENT','HOUSE','VILLA','LAND','WORKPLACE'].map(k=>[k,labels[k]])}/>
+          {field('grossAreaM2','Brüt alan (m²)','text',true,'Örn. 145.00',{pattern:{value:/^\d+(\.\d{1,2})?$/,message:'Geçerli bir alan girin (örn. 145.00).'},validate:(val)=>Number(val)>0||'Brüt alan 0’dan büyük olmalıdır.'})}
+          {field('netAreaM2','Net alan (m²)','text',false,'Örn. 125.00',{pattern:{value:/^\d+(\.\d{1,2})?$/,message:'Geçerli bir alan girin (örn. 125.00).'},validate:(val)=>!val||Number(val)>0||'Net alan 0’dan büyük olmalıdır.'})}
+          {field('rooms','Oda sayısı','number',true,'0–50',{min:{value:0,message:'En az 0 olabilir.'},max:{value:50,message:'En fazla 50 olabilir.'}})}
+          {field('livingRooms','Salon sayısı','number',true,'0–20',{min:{value:0,message:'En az 0 olabilir.'},max:{value:20,message:'En fazla 20 olabilir.'}})}
+          {field('buildingAge','Bina yaşı','number',false,'0–300',{min:{value:0,message:'En az 0 olabilir.'},max:{value:300,message:'En fazla 300 olabilir.'}})}
+          {field('floor','Bulunduğu kat','number',false,'-5 ile 200 arası',{min:{value:-5,message:'En az -5 olabilir.'},max:{value:200,message:'En fazla 200 olabilir.'}})}
+          {field('totalFloors','Toplam kat','number',false,'1–200',{min:{value:1,message:'En az 1 olabilir.'},max:{value:200,message:'En fazla 200 olabilir.'}})}
+          <FilterSelect label="Isıtma" value={form.watch('heatingType')||''} onChange={v=>form.setValue('heatingType',v?v as NonNullable<CreatePropertyRequest['heatingType']>:undefined)} options={['COMBI','CENTRAL','FLOOR_HEATING','STOVE','NONE','OTHER'].map(k=>[k,labels[k]])} empty="Belirtilmedi"/>
+          <label className="grid gap-2 text-sm font-semibold sm:col-span-2">Açıklama *<textarea className={`${inputClass} h-32 py-3`} data-testid="input-prop-description" {...form.register('description',{required:'Açıklama zorunludur.',minLength:{value:20,message:'En az 20 karakter girin.'},maxLength:{value:5000,message:'En fazla 5000 karakter olabilir.'}})}/><span className="text-xs text-destructive">{form.formState.errors.description?.message as string}</span></label>
+        </div>
+      </div>
+
+      <div className="surface p-6">
+        <h3 className="mb-5 font-display text-xl font-bold">Konum</h3>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <FilterSelect label="Şehir *" value={cityId} onChange={v=>{setCityId(v);setDistrictId('');form.setValue('cityId',v);form.setValue('districtId','');form.setValue('neighborhoodId','');}} options={(cities.data||[]).map(c=>[c.id,c.name])}/>
+          <FilterSelect label="İlçe *" value={districtId} onChange={v=>{setDistrictId(v);form.setValue('districtId',v);form.setValue('neighborhoodId','');}} options={(districts.data||[]).map(c=>[c.id,c.name])} disabled={!cityId}/>
+          <FilterSelect label="Mahalle *" value={form.watch('neighborhoodId')} onChange={v=>form.setValue('neighborhoodId',v)} options={(neighborhoods.data||[]).map(c=>[c.id,c.name])} disabled={!districtId}/>
+          {field('address','Açık adres','text',true,'En az 5 karakter')}
+          {field('latitude','Enlem','text',true,'37.870000',{pattern:{value:/^-?\d+(\.\d{1,6})?$/,message:'Geçerli bir enlem girin (örn. 37.870000).'},validate:(val)=>{const n=Number(val);return (n>=-90&&n<=90)||'Enlem -90 ile 90 arasında olmalıdır.';}})}
+          {field('longitude','Boylam','text',true,'32.490000',{pattern:{value:/^-?\d+(\.\d{1,6})?$/,message:'Geçerli bir boylam girin (örn. 32.490000).'},validate:(val)=>{const n=Number(val);return (n>=-180&&n<=180)||'Boylam -180 ile 180 arasında olmalıdır.';}})}
+        </div>
+        <p className="mt-3 text-xs text-muted-foreground">Şehir, ilçe ve mahalle seçimleri gerçek konum kayıtlarından (UUID) alınır.</p>
+      </div>
+
+      <div className="surface p-6">
+        <h3 className="mb-4 font-display text-xl font-bold">Ek özellikler</h3>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {[['isFurnished','Eşyalı'],['hasBalcony','Balkon'],['hasElevator','Asansör'],['hasParking','Otopark'],['inSite','Site içinde']].map(([k,l])=><label key={k} className="flex items-center gap-3 rounded-xl border border-border p-3 text-sm font-medium"><input type="checkbox" className="h-4 w-4 accent-primary" data-testid={`checkbox-prop-${k}`} {...form.register(k as keyof CreatePropertyRequest)}/>{l}</label>)}
+        </div>
+      </div>
+
+      <div className="surface p-6" data-testid="section-property-images">
+        <h3 className="font-display text-xl font-bold">Fotoğraflar</h3>
+        <p className="mt-1 text-sm text-muted-foreground">JPEG, PNG veya WebP · en fazla 10 MB / fotoğraf · en çok 20 fotoğraf</p>
+        {edit?<>
+          <label className={`mt-4 flex cursor-pointer items-center justify-center rounded-xl border border-dashed border-border p-8 text-center text-sm font-semibold hover:border-primary ${imageBusy?'pointer-events-none opacity-60':''}`}>
+            {imageBusy?'Fotoğraf işlemi yapılıyor…':'Fotoğraf seçin'}
+            <input className="sr-only" type="file" disabled={imageBusy} data-testid="input-property-images" accept="image/jpeg,image/png,image/webp" multiple onChange={e=>{void addFiles(e.target.files);e.currentTarget.value='';}}/>
+          </label>
+          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {uploads.map((image,i)=><div key={image.id} className="relative overflow-hidden rounded-xl border border-border" data-testid={`card-property-image-${image.id}`}>
+              <img src={fileUrl(image.url)||''} alt="Yüklenen ilan fotoğrafı" className="aspect-square w-full object-cover"/>
+              <div className="flex items-center justify-between gap-2 p-2">
+                <button type="button" disabled={imageBusy||image.isCover} data-testid={`button-cover-image-${image.id}`} onClick={()=>void chooseCover(image.id)} className="text-xs font-semibold text-primary disabled:opacity-60">{image.isCover?'Kapak':'Kapak yap'}</button>
+                <button type="button" disabled={imageBusy} data-testid={`button-delete-image-${image.id}`} onClick={()=>void deleteImage(image.id)} className="text-xs text-destructive disabled:opacity-60">Sil</button>
+              </div>
+              <div className="flex items-center justify-between border-t border-border px-2 py-1.5 text-xs">
+                <button type="button" disabled={imageBusy||i===0} data-testid={`button-move-prev-${image.id}`} onClick={()=>void reorder(i,i-1)} aria-label="Öne taşı" className="inline-flex items-center gap-1 font-medium text-muted-foreground hover:text-foreground disabled:opacity-35"><ChevronLeft size={14}/>Öne taşı</button>
+                <button type="button" disabled={imageBusy||i===uploads.length-1} data-testid={`button-move-next-${image.id}`} onClick={()=>void reorder(i,i+1)} aria-label="Geri taşı" className="inline-flex items-center gap-1 font-medium text-muted-foreground hover:text-foreground disabled:opacity-35">Geri taşı<ChevronRight size={14}/></button>
+              </div>
+            </div>)}
+          </div>
+          {!uploads.length&&<p className="mt-3 text-xs text-muted-foreground">Bu ilana henüz fotoğraf eklenmemiş.</p>}
+        </>:<p className="mt-3 rounded-xl bg-muted p-4 text-sm text-muted-foreground">İlanı ilk kez kaydettikten sonra fotoğraflarınızı ekleyebilirsiniz.</p>}
+      </div>
+
+      {message&&<p role="status" className="text-sm text-primary" data-testid="text-property-feedback">{message}</p>}
+      {errorMsg&&<p role="alert" className="text-sm text-destructive" data-testid="text-property-error">{errorMsg}</p>}
+      <div className="flex flex-wrap justify-end gap-3">
+        <Link href="/panel/ilanlar" className="rounded-xl border border-border px-5 py-3 font-semibold">Vazgeç</Link>
+        <button className="rounded-xl bg-primary px-6 py-3 font-bold text-white disabled:opacity-60" disabled={mutation.isPending} data-testid="button-submit-property">{mutation.isPending?'Kaydediliyor…':edit?'İlanı kaydet':'İlanı oluştur'}</button>
+      </div>
+    </form>
+  </PanelLayout>;
 }
 function AgentProfilePage() {
-  const qc=useQueryClient(); const q=useQuery({queryKey:['agent-me'],queryFn:agentsApi.mine}); const form=useForm({defaultValues:{companyName:'',phone:'',email:'',address:'',description:''}}); const [notice,setNotice]=useState('');
-  useEffect(()=>{if(q.data)form.reset({companyName:q.data.companyName,phone:q.data.phone,email:q.data.email,address:q.data.address,description:q.data.description||''});},[q.data,form]);
-  const update=useMutation({mutationFn:agentsApi.update,onSuccess:()=>{qc.invalidateQueries({queryKey:['agent-me']});if(q.data?.slug)qc.invalidateQueries({queryKey:['agent',q.data.slug]});setNotice('Emlakçı profili güncellendi.');}});
-  const logo=useMutation({mutationFn:agentsApi.logo,onSuccess:()=>{qc.invalidateQueries({queryKey:['agent-me']});if(q.data?.slug)qc.invalidateQueries({queryKey:['agent',q.data.slug]});setNotice('Logo güncellendi.');}});
-  return <PanelLayout><SectionTitle eyebrow="Profil yönetimi" title="Emlakçı profilim" description="Public profilde görünen şirket ve iletişim bilgileri."/>{q.isLoading?<div className="surface p-6"><div className="skeleton h-48"/></div>:q.error?<ErrorState retry={()=>q.refetch()} message={showError(q.error)}/>:q.data&&<div className="grid gap-5"><div className="surface flex flex-wrap items-center gap-5 p-5"><div className="grid h-20 w-20 place-items-center overflow-hidden rounded-2xl bg-muted text-primary">{q.data.logoUrl&&fileUrl(q.data.logoUrl)?<img src={fileUrl(q.data.logoUrl)!} alt="Şirket logosu" className="h-full w-full object-cover"/>:<Building2 size={30}/>}</div><div className="flex-1"><p className="font-bold">Şirket logosu</p><p className="mt-1 text-xs text-muted-foreground">JPEG, PNG veya WebP · en fazla 5 MB</p></div><label className="cursor-pointer rounded-xl border border-border px-4 py-2.5 text-sm font-semibold">Logo yükle<input className="sr-only" type="file" accept="image/jpeg,image/png,image/webp" onChange={e=>{const f=e.target.files?.[0];if(f){if(f.size>5*1024*1024)setNotice('Logo 5 MB sınırını aşamaz.');else logo.mutate(f);}e.currentTarget.value='';}}/></label></div><form className="surface grid gap-4 p-6 sm:grid-cols-2" onSubmit={form.handleSubmit(v=>update.mutate(v))}>{([['companyName','Firma adı'],['phone','Telefon'],['email','E-posta'],['address','Açık adres']] as const).map(([key,label])=><label key={key} className="grid gap-1.5 text-sm font-semibold">{label}<input className={inputClass} {...form.register(key,{required:true})}/></label>)}<label className="grid gap-1.5 text-sm font-semibold sm:col-span-2">Açıklama<textarea className={`${inputClass} h-24 py-3`} {...form.register('description')}/></label><div className="rounded-xl bg-muted p-3 text-xs text-muted-foreground sm:col-span-2"><b>Değiştirilemeyen bilgiler:</b> Profil adresi: /emlakci/{q.data.slug} · {q.data.city}, {q.data.district} · Vergi numarası: {q.data.taxNumber} · Profil durumu: {q.data.isActive?'Aktif':'Pasif'}</div>{notice&&<p className="text-sm text-primary sm:col-span-2">{notice}</p>}<button className="h-11 rounded-xl bg-primary font-bold text-white sm:col-span-2" disabled={update.isPending}>Profili kaydet</button></form></div>}</PanelLayout>;
+  const isMock=DATA_MODE==='mock';
+  const qc=useQueryClient(); const {toast}=useToast();
+  const q=useMyAgentProfile(!isMock);
+  const form=useForm<UpdateAgentProfileRequest>({defaultValues:{companyName:'',phone:'',email:'',address:'',description:''}});
+  const [notice,setNotice]=useState(''); const [errorMsg,setErrorMsg]=useState('');
+  useEffect(()=>{
+    if(q.data){
+      form.reset({
+        companyName:q.data.companyName,
+        phone:q.data.phone,
+        email:q.data.email,
+        address:q.data.address,
+        description:q.data.description||'',
+      });
+    }
+  },[q.data,form]);
+
+  const update=useMutation({
+    mutationFn:(v:UpdateAgentProfileRequest)=>agentsApi.updateMyAgentProfile(v),
+    onSuccess:(saved)=>{
+      qc.setQueryData(keys.agentMe,saved);
+      void qc.invalidateQueries({queryKey:keys.agentMe});
+      if(saved.slug)void qc.invalidateQueries({queryKey:keys.agent(saved.slug)});
+      setErrorMsg('');
+      setNotice('Emlakçı profili güncellendi.');
+      toast({title:'Emlakçı profili güncellendi.'});
+    },
+    onError:(err)=>{
+      setNotice('');
+      setErrorMsg(showError(err));
+    },
+  });
+
+  const logo=useMutation({
+    mutationFn:(file:File)=>agentsApi.uploadAgentLogo(file),
+    onSuccess:()=>{
+      void qc.invalidateQueries({queryKey:keys.agentMe});
+      if(q.data?.slug)void qc.invalidateQueries({queryKey:keys.agent(q.data.slug)});
+      setErrorMsg('');
+      setNotice('Logo güncellendi.');
+      toast({title:'Logo güncellendi.'});
+    },
+    onError:(err)=>{
+      setNotice('');
+      setErrorMsg(showError(err));
+    },
+  });
+
+  const onLogoSelect=(file:File|undefined)=>{
+    if(!file)return;
+    setNotice('');
+    setErrorMsg('');
+    const allowedMimes=['image/jpeg','image/png','image/webp'];
+    const lower=file.name.toLowerCase();
+    const validExt=lower.endsWith('.jpg')||lower.endsWith('.jpeg')||lower.endsWith('.png')||lower.endsWith('.webp');
+    if((file.type&&!allowedMimes.includes(file.type))||(!file.type&&!validExt)){
+      setErrorMsg('Logo yalnızca JPEG, PNG veya WebP formatında olabilir.');
+      return;
+    }
+    if(file.size>5*1024*1024){
+      setErrorMsg('Logo 5 MB sınırını aşamaz.');
+      return;
+    }
+    logo.mutate(file);
+  };
+
+  if(isMock)return <PanelLayout><EmptyState title="Bu özellik gerçek API bağlantısı gerektirir" text="Emlakçı profilinizi yönetmek için gerçek API modunda giriş yapın." href="/ilanlar" action="İlanları keşfet"/></PanelLayout>;
+
+  return <PanelLayout>
+    <SectionTitle eyebrow="Profil yönetimi" title="Emlakçı profilim" description="Public profilde görünen şirket ve iletişim bilgileri."/>
+    {q.isLoading?<div className="surface p-6"><div className="skeleton h-48"/></div>:q.error?<ErrorState retry={()=>q.refetch()} message={showError(q.error)}/>:q.data&&<div className="grid gap-5">
+      <div className="surface flex flex-wrap items-center gap-5 p-5">
+        <div className="grid h-20 w-20 place-items-center overflow-hidden rounded-2xl bg-muted text-primary">
+          {q.data.logoUrl&&fileUrl(q.data.logoUrl)?<img src={fileUrl(q.data.logoUrl)!} alt="Şirket logosu" className="h-full w-full object-cover" data-testid="img-agent-logo"/>:<Building2 size={30}/>}
+        </div>
+        <div className="flex-1">
+          <p className="font-bold">Şirket logosu</p>
+          <p className="mt-1 text-xs text-muted-foreground">JPEG, PNG veya WebP · en fazla 5 MB</p>
+        </div>
+        <label className={`cursor-pointer rounded-xl border border-border px-4 py-2.5 text-sm font-semibold ${logo.isPending?'pointer-events-none opacity-60':''}`}>
+          {logo.isPending?'Yükleniyor…':'Logo yükle'}
+          <input className="sr-only" type="file" disabled={logo.isPending} data-testid="input-agent-logo" accept="image/jpeg,image/png,image/webp" onChange={e=>{onLogoSelect(e.target.files?.[0]);e.currentTarget.value='';}}/>
+        </label>
+      </div>
+
+      <form className="surface grid gap-4 p-6 sm:grid-cols-2" onSubmit={form.handleSubmit(v=>{setNotice('');setErrorMsg('');update.mutate(v);})}>
+        <label className="grid gap-1.5 text-sm font-semibold">Firma adı *<input className={inputClass} data-testid="input-agent-companyName" {...form.register('companyName',{required:'Firma adı zorunludur.',minLength:{value:2,message:'Firma adı en az 2 karakter olmalıdır.'},maxLength:{value:120,message:'Firma adı en fazla 120 karakter olabilir.'}})}/><span className="text-xs text-destructive">{form.formState.errors.companyName?.message}</span></label>
+        <label className="grid gap-1.5 text-sm font-semibold">Telefon *<input className={inputClass} type="tel" data-testid="input-agent-phone" {...form.register('phone',{required:'Telefon zorunludur.',minLength:{value:7,message:'Telefon en az 7 karakter olmalıdır.'},maxLength:{value:32,message:'Telefon en fazla 32 karakter olabilir.'}})}/><span className="text-xs text-destructive">{form.formState.errors.phone?.message}</span></label>
+        <label className="grid gap-1.5 text-sm font-semibold">E-posta *<input className={inputClass} type="email" data-testid="input-agent-email" {...form.register('email',{required:'E-posta zorunludur.',maxLength:{value:254,message:'E-posta en fazla 254 karakter olabilir.'}})}/><span className="text-xs text-destructive">{form.formState.errors.email?.message}</span></label>
+        <label className="grid gap-1.5 text-sm font-semibold">Açık adres *<input className={inputClass} data-testid="input-agent-address" {...form.register('address',{required:'Açık adres zorunludur.',minLength:{value:5,message:'Açık adres en az 5 karakter olmalıdır.'},maxLength:{value:300,message:'Açık adres en fazla 300 karakter olabilir.'}})}/><span className="text-xs text-destructive">{form.formState.errors.address?.message}</span></label>
+        <label className="grid gap-1.5 text-sm font-semibold sm:col-span-2">Açıklama<textarea className={`${inputClass} h-24 py-3`} data-testid="input-agent-description" {...form.register('description',{maxLength:{value:2000,message:'Açıklama en fazla 2000 karakter olabilir.'}})}/><span className="text-xs text-destructive">{form.formState.errors.description?.message}</span></label>
+        <div className="rounded-xl bg-muted p-3 text-xs text-muted-foreground sm:col-span-2">
+          <b>Değiştirilemeyen bilgiler:</b> Profil adresi: <Link href={`/emlakci/${q.data.slug}`} className="font-semibold text-primary underline">/emlakci/{q.data.slug}</Link> · {q.data.city}, {q.data.district} · Vergi numarası: {q.data.taxNumber} · Profil durumu: {q.data.isActive?'Aktif':'Pasif'}
+        </div>
+        {notice&&<p role="status" className="text-sm text-primary sm:col-span-2" data-testid="text-agent-profile-notice">{notice}</p>}
+        {errorMsg&&<p role="alert" className="text-sm text-destructive sm:col-span-2" data-testid="text-agent-profile-error">{errorMsg}</p>}
+        <button className="h-11 rounded-xl bg-primary font-bold text-white disabled:opacity-60 sm:col-span-2" disabled={update.isPending} data-testid="button-save-agent-profile">{update.isPending?'Kaydediliyor…':'Profili kaydet'}</button>
+      </form>
+    </div>}
+  </PanelLayout>;
 }
 
 function AdminLayout({ children }: { children: ReactNode }) {
@@ -640,58 +1114,515 @@ function AdminLayout({ children }: { children: ReactNode }) {
     </div>
   </Guard>;
 }
-function AdminHome() { return <AdminLayout><div className="surface p-8"><p className="text-xs font-bold uppercase tracking-widest text-primary">Yönetim alanı</p><h2 className="mt-2 font-display text-3xl font-extrabold">Merhaba</h2><p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">Kullanıcıları, emlakçı başvurularını ve ilan moderasyonunu buradan yönetin. Bu ekranda sunulmayan ölçümler için tahmini metrik gösterilmez.</p></div><div className="mt-5 grid gap-3 sm:grid-cols-2">{[['/admin/kullanicilar','Kullanıcıları incele','Hesap rolü ve aktiflik durumlarını görüntüleyin.'],['/admin/basvurular','Başvuruları incele','Yeni emlakçı başvurularını değerlendirin.'],['/admin/emlakcilar','Emlakçı kayıtları','Hesap ve profil durumlarını ayrı ayrı yönetin.'],['/admin/ilanlar','İlan moderasyonu','İlanları gözden geçirin ve gerektiğinde müdahale edin.'],['/admin/audit-logs','Audit kayıtları','Yönetim değişikliklerini salt okunur görüntüleyin.']].map(([href,label,text])=><Link key={href} href={href} className="surface p-5 transition hover:-translate-y-0.5 hover:border-primary"><h3 className="font-bold">{label} <ArrowRight className="inline" size={15}/></h3><p className="mt-2 text-sm text-muted-foreground">{text}</p></Link>)}</div></AdminLayout>; }
+function AdminHome() {
+  const isMock=DATA_MODE==='mock';
+  const users=useAdminUsers({page:1,limit:1},!isMock);
+  const pendingApps=useAdminApps({page:1,limit:1,status:'PENDING'},!isMock);
+  const agents=useAdminAgents({page:1,limit:1},!isMock);
+  const properties=useAdminProperties({page:1,limit:1,deleted:'false'},!isMock);
+  if(isMock)return <AdminLayout><EmptyState title="Bu özellik gerçek API bağlantısı gerektirir" text="Yönetim panelini kullanmak için gerçek API modunda giriş yapın." href="/ilanlar" action="İlanları keşfet"/></AdminLayout>;
+  return <AdminLayout>
+    <div className="surface p-8"><p className="text-xs font-bold uppercase tracking-widest text-primary">Yönetim alanı</p><h2 className="mt-2 font-display text-3xl font-extrabold">Merhaba</h2><p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">Kullanıcıları, emlakçı başvurularını ve ilan moderasyonunu buradan yönetin. Yalnızca gerçek liste toplamları gösterilir; tahmini metrik üretilmez.</p></div>
+    <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="surface p-5"><small className="text-xs text-muted-foreground">Toplam kullanıcı</small><p className="mt-1 text-3xl font-extrabold" data-testid="stat-admin-users">{users.data?.total??'—'}</p><small className="text-xs text-muted-foreground">Kayıtlı tüm hesaplar</small></div>
+      <div className="surface p-5"><small className="text-xs text-muted-foreground">Bekleyen başvuru</small><p className="mt-1 text-3xl font-extrabold" data-testid="stat-admin-pending-apps">{pendingApps.data?.total??'—'}</p><small className="text-xs text-muted-foreground">İnceleme bekleyen (PENDING)</small></div>
+      <div className="surface p-5"><small className="text-xs text-muted-foreground">Kayıtlı emlakçı</small><p className="mt-1 text-3xl font-extrabold" data-testid="stat-admin-agents">{agents.data?.total??'—'}</p><small className="text-xs text-muted-foreground">Onaylı emlakçı profilleri</small></div>
+      <div className="surface p-5"><small className="text-xs text-muted-foreground">Silinmemiş ilanlar</small><p className="mt-1 text-3xl font-extrabold" data-testid="stat-admin-properties">{properties.data?.total??'—'}</p><small className="text-xs text-muted-foreground">Moderasyon kapsamındaki kayıtlar</small></div>
+    </div>
+    <div className="mt-5 grid gap-3 sm:grid-cols-2">
+      {[['/admin/kullanicilar','Kullanıcıları incele','Hesap rolü ve aktiflik durumlarını görüntüleyin.'],['/admin/basvurular','Başvuruları incele','Yeni emlakçı başvurularını değerlendirin.'],['/admin/emlakcilar','Emlakçı kayıtları','Hesap ve profil durumlarını ayrı ayrı yönetin.'],['/admin/ilanlar','İlan moderasyonu','İlanları gözden geçirin ve gerektiğinde müdahale edin.'],['/admin/audit-logs','Audit kayıtları','Yönetim değişikliklerini salt okunur görüntüleyin.']].map(([href,label,text])=><Link key={href} href={href} className="surface p-5 transition hover:-translate-y-0.5 hover:border-primary"><h3 className="font-bold">{label} <ArrowRight className="inline" size={15}/></h3><p className="mt-2 text-sm text-muted-foreground">{text}</p></Link>)}
+    </div>
+  </AdminLayout>;
+}
 function AdminUsersPage() {
+  const isMock=DATA_MODE==='mock';
   const [email,setEmail]=useState(''),[role,setRole]=useState(''),[active,setActive]=useState(''),[page,setPage]=useState(1);
-  const data=useAdminUsers({page,limit:20,...(email?{email}:{}),...(role?{role:role as 'USER'|'AGENT'|'ADMIN'}:{}),...(active?{isActive:active as 'true'|'false'}:{})});
-  return <AdminLayout><SectionTitle eyebrow="Hesaplar" title="Kullanıcılar" description="E-posta, rol ve hesap durumuna göre arayın."/><div className="surface mb-4 grid gap-3 p-4 sm:grid-cols-3"><input className={inputClass} placeholder="E-posta içinde ara" value={email} onChange={e=>{setEmail(e.target.value);setPage(1);}}/><select className={inputClass} value={role} onChange={e=>{setRole(e.target.value);setPage(1);}}><option value="">Tüm roller</option>{['USER','AGENT','ADMIN'].map(r=><option key={r} value={r}>{labels[r]}</option>)}</select><select className={inputClass} value={active} onChange={e=>{setActive(e.target.value);setPage(1);}}><option value="">Tüm durumlar</option><option value="true">Aktif</option><option value="false">Pasif</option></select></div>{data.isLoading?<div className="surface p-6"><div className="skeleton h-48"/></div>:data.error?<ErrorState retry={()=>data.refetch()} message={showError(data.error)}/>:data.data?.items.length?<><div className="surface overflow-x-auto"><table className="data-table"><thead><tr><th>Kullanıcı</th><th>Rol</th><th>Durum</th><th>Kayıt</th><th></th></tr></thead><tbody>{data.data.items.map(u=><tr key={u.id}><td><b>{[u.firstName,u.lastName].filter(Boolean).join(' ')||'Ad belirtilmemiş'}</b><small>{u.email}</small></td><td>{labels[u.role]}</td><td><StatusPill active={u.isActive}/></td><td>{new Date(u.createdAt).toLocaleDateString('tr-TR')}</td><td><Link className="text-sm font-bold text-primary" href={`/admin/kullanicilar/${u.id}`}>Detay</Link></td></tr>)}</tbody></table></div><Pagination page={data.data.page} limit={data.data.limit} total={data.data.total} onChange={setPage}/></>:<EmptyState title="Kullanıcı bulunamadı" text="Bu filtrelerle eşleşen hesap yok."/>}</AdminLayout>;
+  const data=useAdminUsers({page,limit:20,...(email.trim()?{email:email.trim()}:{}),...(role?{role:role as 'USER'|'AGENT'|'ADMIN'}:{}),...(active?{isActive:active as 'true'|'false'}:{})},!isMock);
+  if(isMock)return <AdminLayout><EmptyState title="Bu özellik gerçek API bağlantısı gerektirir" text="Kullanıcıları yönetmek için gerçek API modunda giriş yapın." href="/ilanlar" action="İlanları keşfet"/></AdminLayout>;
+  return <AdminLayout>
+    <SectionTitle eyebrow="Hesaplar" title="Kullanıcılar" description="E-posta, rol ve hesap durumuna göre arayın."/>
+    <div className="surface mb-4 grid gap-3 p-4 sm:grid-cols-3">
+      <input className={inputClass} placeholder="E-posta içinde ara" data-testid="input-admin-users-email" value={email} onChange={e=>{setEmail(e.target.value);setPage(1);}}/>
+      <select className={inputClass} aria-label="Rol filtresi" data-testid="select-admin-users-role" value={role} onChange={e=>{setRole(e.target.value);setPage(1);}}><option value="">Tüm roller</option>{['USER','AGENT','ADMIN'].map(r=><option key={r} value={r}>{labels[r]}</option>)}</select>
+      <select className={inputClass} aria-label="Durum filtresi" data-testid="select-admin-users-active" value={active} onChange={e=>{setActive(e.target.value);setPage(1);}}><option value="">Tüm durumlar</option><option value="true">Aktif</option><option value="false">Pasif</option></select>
+    </div>
+    {data.isLoading?<div className="surface p-6"><div className="skeleton h-48"/></div>:data.error?<ErrorState retry={()=>data.refetch()} message={showError(data.error)}/>:data.data?.items.length?<>
+      <div className="surface overflow-x-auto">
+        <table className="data-table">
+          <thead><tr><th>Kullanıcı</th><th>Telefon</th><th>Rol</th><th>Durum</th><th>Kayıt</th><th></th></tr></thead>
+          <tbody>{data.data.items.map(u=><tr key={u.id} data-testid={`row-admin-user-${u.id}`}><td><b>{[u.firstName,u.lastName].filter(Boolean).join(' ')||'Ad belirtilmemiş'}</b><small>{u.email}</small></td><td>{u.phone||'—'}</td><td>{labels[u.role]}</td><td><StatusPill active={u.isActive}/></td><td>{new Date(u.createdAt).toLocaleDateString('tr-TR')}</td><td><Link className="text-sm font-bold text-primary" href={`/admin/kullanicilar/${u.id}`} data-testid={`link-admin-user-${u.id}`}>Detay</Link></td></tr>)}</tbody>
+        </table>
+      </div>
+      <Pagination page={data.data.page} limit={data.data.limit} total={data.data.total} onChange={setPage}/>
+    </>:<EmptyState title="Kullanıcı bulunamadı" text="Bu filtrelerle eşleşen hesap yok."/>}
+  </AdminLayout>;
 }
 function StatusPill({active}:{active:boolean}) { return <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${active?'bg-emerald-100 text-emerald-800':'bg-rose-100 text-rose-800'}`}>{active?'Aktif':'Pasif'}</span>; }
 function AdminUserDetailPage() {
-  const [match,params]=useRoute('/admin/kullanicilar/:id'); const id=params?.id||''; const q=useQuery({queryKey:['admin-user',id],queryFn:()=>adminApi.user(id),enabled:!!id}); const qc=useQueryClient(); const [message,setMessage]=useState('');
-  const status=useMutation({mutationFn:(active:boolean)=>adminApi.userStatus(id,active),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-user',id]});qc.invalidateQueries({queryKey:['admin-users']});setMessage('Hesap durumu güncellendi.');}});
+  const isMock=DATA_MODE==='mock';
+  const [match,params]=useRoute('/admin/kullanicilar/:id'); const id=params?.id||'';
+  const {user:currentAdmin}=useAuth(); const {toast}=useToast();
+  const q=useAdminUser(id,!isMock); const qc=useQueryClient();
+  const [message,setMessage]=useState(''); const [errorMsg,setErrorMsg]=useState('');
+  const status=useMutation({
+    mutationFn:(active:boolean)=>adminUsersApi.updateUserStatus(id,active),
+    onSuccess:()=>{
+      void qc.invalidateQueries({queryKey:keys.adminUser(id)});
+      void qc.invalidateQueries({queryKey:['admin-users']});
+      void qc.invalidateQueries({queryKey:['admin-agents']});
+      void qc.invalidateQueries({queryKey:['admin-audit-logs']});
+      void qc.invalidateQueries({queryKey:['properties']});
+      void qc.invalidateQueries({queryKey:['agent-properties']});
+      setErrorMsg('');
+      setMessage('Hesap durumu güncellendi.');
+      toast({title:'Hesap durumu güncellendi.'});
+    },
+    onError:(err)=>{setMessage('');setErrorMsg(showError(err));},
+  });
   if(!match)return null;
-  return <AdminLayout><Link href="/admin/kullanicilar" className="mb-4 inline-flex items-center gap-2 text-sm text-muted-foreground"><ArrowLeft size={15}/> Kullanıcı listesi</Link>{q.isLoading?<div className="surface p-8"><div className="skeleton h-48"/></div>:q.error?<ErrorState message={showError(q.error)}/>:q.data&&<div className="surface p-7"><div className="flex flex-wrap items-start justify-between gap-4"><div><h2 className="font-display text-2xl font-extrabold">{[q.data.firstName,q.data.lastName].filter(Boolean).join(' ')||'Ad belirtilmemiş'}</h2><p className="mt-1 text-muted-foreground">{q.data.email}</p></div><button disabled={status.isPending} onClick={()=>status.mutate(!q.data?.isActive)} className="rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-white">{q.data.isActive?'Hesabı pasife al':'Hesabı aktifleştir'}</button></div><div className="mt-6 grid gap-4 border-t border-border pt-5 sm:grid-cols-2"><Info label="Rol" value={labels[q.data.role]}/><Info label="Hesap durumu" value={q.data.isActive?'Aktif':'Pasif'}/><Info label="Telefon" value={q.data.phone||'—'}/><Info label="Oluşturulma" value={new Date(q.data.createdAt).toLocaleString('tr-TR')}/><Info label="Güncellenme" value={new Date(q.data.updatedAt).toLocaleString('tr-TR')}/></div>{q.data.agentProfile&&<div className="mt-6 rounded-xl bg-muted p-4"><h3 className="font-bold">Emlakçı profili</h3><p className="mt-1">{q.data.agentProfile.companyName} · {q.data.agentProfile.city}, {q.data.agentProfile.district}</p><p className="mt-1 text-sm text-muted-foreground">Profil durumu: {q.data.agentProfile.isActive?'Aktif':'Pasif'} · /emlakci/{q.data.agentProfile.slug}</p></div>}{message&&<p className="mt-4 text-sm text-primary">{message}</p>}{status.error&&<p className="mt-3 text-sm text-destructive">{showError(status.error)}</p>}</div>}</AdminLayout>;
+  if(isMock)return <AdminLayout><EmptyState title="Bu özellik gerçek API bağlantısı gerektirir" text="Kullanıcı detayını görüntülemek için gerçek API modunda giriş yapın." href="/ilanlar" action="İlanları keşfet"/></AdminLayout>;
+  const isSelf=Boolean(currentAdmin&&q.data&&currentAdmin.id===q.data.id);
+  const toggleUserStatus=()=>{
+    if(!q.data)return;
+    if(q.data.isActive&&!window.confirm('Bu kullanıcı hesabını pasife almak istediğinize emin misiniz?'))return;
+    setMessage('');setErrorMsg('');
+    status.mutate(!q.data.isActive);
+  };
+  return <AdminLayout>
+    <Link href="/admin/kullanicilar" className="mb-4 inline-flex items-center gap-2 text-sm text-muted-foreground"><ArrowLeft size={15}/> Kullanıcı listesi</Link>
+    {q.isLoading?<div className="surface p-8"><div className="skeleton h-48"/></div>:q.error?<ErrorState retry={()=>q.refetch()} message={showError(q.error)}/>:q.data&&<div className="surface p-7">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="font-display text-2xl font-extrabold">{[q.data.firstName,q.data.lastName].filter(Boolean).join(' ')||'Ad belirtilmemiş'}</h2>
+          <p className="mt-1 text-muted-foreground">{q.data.email}</p>
+        </div>
+        <button type="button" disabled={status.isPending||(isSelf&&q.data.isActive)} data-testid="button-toggle-user-status" onClick={toggleUserStatus} className="rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">{status.isPending?'Güncelleniyor…':q.data.isActive?'Hesabı pasife al':'Hesabı aktifleştir'}</button>
+      </div>
+      {isSelf&&q.data.isActive&&<p className="mt-3 text-xs text-muted-foreground">Güvenlik kuralı gereği yönetici kendi hesabını pasife alamaz.</p>}
+      <div className="mt-6 grid gap-4 border-t border-border pt-5 sm:grid-cols-2">
+        <Info label="Rol" value={labels[q.data.role]}/>
+        <Info label="Hesap durumu" value={q.data.isActive?'Aktif':'Pasif'}/>
+        <Info label="Telefon" value={q.data.phone||'—'}/>
+        <Info label="Oluşturulma" value={new Date(q.data.createdAt).toLocaleString('tr-TR')}/>
+        <Info label="Güncellenme" value={new Date(q.data.updatedAt).toLocaleString('tr-TR')}/>
+      </div>
+      {q.data.agentProfile&&<div className="mt-6 rounded-xl bg-muted p-4">
+        <h3 className="font-bold">Emlakçı profili</h3>
+        <p className="mt-1">{q.data.agentProfile.companyName} · {q.data.agentProfile.city}, {q.data.agentProfile.district}</p>
+        <p className="mt-1 text-sm text-muted-foreground">Profil durumu: {q.data.agentProfile.isActive?'Aktif':'Pasif'} · <Link href={`/admin/emlakcilar/${q.data.agentProfile.id}`} className="font-semibold text-primary underline">Emlakçı yönetimi</Link> · <Link href={`/emlakci/${q.data.agentProfile.slug}`} className="font-semibold text-primary underline">/emlakci/{q.data.agentProfile.slug}</Link></p>
+      </div>}
+      {message&&<p role="status" className="mt-4 text-sm text-primary" data-testid="text-admin-user-message">{message}</p>}
+      {errorMsg&&<p role="alert" className="mt-3 text-sm text-destructive" data-testid="text-admin-user-error">{errorMsg}</p>}
+    </div>}
+  </AdminLayout>;
 }
 function Info({label,value}:{label:string;value:string}) { return <div><small className="text-xs text-muted-foreground">{label}</small><p className="mt-1 font-semibold">{value}</p></div>; }
 
 function AdminApplicationsPage() {
-  const [status,setStatus]=useState(''),[page,setPage]=useState(1); const data=useAdminApps({page,limit:20,...(status?{status:status as 'PENDING'|'APPROVED'|'REJECTED'}:{})});
-  return <AdminLayout><SectionTitle eyebrow="Emlakçı hesabı" title="Başvurular" description="Başvuruları durumuna göre inceleyin."/><div className="mb-4 flex gap-3"><select className={inputClass+' max-w-xs'} value={status} onChange={e=>{setStatus(e.target.value);setPage(1);}}><option value="">Tüm başvurular</option>{['PENDING','APPROVED','REJECTED'].map(v=><option key={v} value={v}>{labels[v]}</option>)}</select></div>{data.isLoading?<div className="surface p-6"><div className="skeleton h-48"/></div>:data.error?<ErrorState retry={()=>data.refetch()} message={showError(data.error)}/>:data.data?.items.length?<><div className="surface overflow-x-auto"><table className="data-table"><thead><tr><th>Firma</th><th>Başvuran</th><th>Konum</th><th>Durum</th><th>Tarih</th><th></th></tr></thead><tbody>{data.data.items.map(a=><tr key={a.id}><td><b>{a.companyName}</b></td><td>{a.user.email}</td><td>{a.city}, {a.district}</td><td><span className="rounded-full bg-secondary px-2.5 py-1 text-xs">{labels[a.status]}</span></td><td>{new Date(a.createdAt).toLocaleDateString('tr-TR')}</td><td><Link href={`/admin/basvurular/${a.id}`} className="text-sm font-bold text-primary">İncele</Link></td></tr>)}</tbody></table></div><Pagination page={data.data.page} limit={data.data.limit} total={data.data.total} onChange={setPage}/></>:<EmptyState title="Başvuru bulunamadı" text="Bu durumda incelenecek başvuru yok."/>}</AdminLayout>;
+  const isMock=DATA_MODE==='mock';
+  const [status,setStatus]=useState(''),[page,setPage]=useState(1);
+  const data=useAdminApps({page,limit:20,...(status?{status:status as 'PENDING'|'APPROVED'|'REJECTED'}:{})},!isMock);
+  if(isMock)return <AdminLayout><EmptyState title="Bu özellik gerçek API bağlantısı gerektirir" text="Emlakçı başvurularını incelemek için gerçek API modunda giriş yapın." href="/ilanlar" action="İlanları keşfet"/></AdminLayout>;
+  return <AdminLayout>
+    <SectionTitle eyebrow="Emlakçı hesabı" title="Başvurular" description="Başvuruları durumuna göre inceleyin."/>
+    <div className="mb-4 flex gap-3">
+      <select className={inputClass+' max-w-xs'} aria-label="Başvuru durumu filtresi" data-testid="select-admin-apps-status" value={status} onChange={e=>{setStatus(e.target.value);setPage(1);}}>
+        <option value="">Tüm başvurular</option>
+        {['PENDING','APPROVED','REJECTED'].map(v=><option key={v} value={v}>{labels[v]}</option>)}
+      </select>
+    </div>
+    {data.isLoading?<div className="surface p-6"><div className="skeleton h-48"/></div>:data.error?<ErrorState retry={()=>data.refetch()} message={showError(data.error)}/>:data.data?.items.length?<>
+      <div className="surface overflow-x-auto">
+        <table className="data-table">
+          <thead><tr><th>Firma</th><th>Başvuran</th><th>Konum</th><th>Durum</th><th>Tarih</th><th></th></tr></thead>
+          <tbody>{data.data.items.map(a=><tr key={a.id} data-testid={`row-admin-app-${a.id}`}><td><b>{a.companyName}</b></td><td>{a.user.email}<small>{labels[a.user.role]} · {a.user.isActive?'Aktif':'Pasif'}</small></td><td>{a.city}, {a.district}</td><td><span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-semibold">{labels[a.status]}</span></td><td>{new Date(a.createdAt).toLocaleDateString('tr-TR')}</td><td><Link href={`/admin/basvurular/${a.id}`} className="text-sm font-bold text-primary" data-testid={`link-admin-app-${a.id}`}>İncele</Link></td></tr>)}</tbody>
+        </table>
+      </div>
+      <Pagination page={data.data.page} limit={data.data.limit} total={data.data.total} onChange={setPage}/>
+    </>:<EmptyState title="Başvuru bulunamadı" text="Bu durumda incelenecek başvuru yok."/>}
+  </AdminLayout>;
 }
 function AdminApplicationDetailPage() {
-  const [match,params]=useRoute('/admin/basvurular/:id'); const id=params?.id||''; const q=useQuery({queryKey:['admin-application',id],queryFn:()=>adminApi.application(id),enabled:!!id}); const docs=useQuery({queryKey:['admin-application-docs',id],queryFn:()=>adminApi.applicationDocuments(id),enabled:!!id}); const qc=useQueryClient(); const [reason,setReason]=useState(''),[message,setMessage]=useState('');
-  const approve=useMutation({mutationFn:()=>adminApi.approveApplication(id),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-application',id]});qc.invalidateQueries({queryKey:['admin-apps']});qc.invalidateQueries({queryKey:['admin-agents']});setMessage('Başvuru onaylandı.');}});
-  const reject=useMutation({mutationFn:()=>adminApi.rejectApplication(id,reason),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-application',id]});qc.invalidateQueries({queryKey:['admin-apps']});setMessage('Başvuru reddedildi.');}});
-  const dl=async(docId:string)=>{try{const blob=await adminApi.applicationDocument(id,docId);const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='basvuru-belgesi';a.click();URL.revokeObjectURL(url);}catch(e){setMessage(showError(e));}};
+  const isMock=DATA_MODE==='mock';
+  const [match,params]=useRoute('/admin/basvurular/:id'); const id=params?.id||'';
+  const {toast}=useToast();
+  const q=useAdminApplication(id,!isMock);
+  const docs=useAdminApplicationDocuments(id,!isMock);
+  const qc=useQueryClient();
+  const [reason,setReason]=useState(''),[message,setMessage]=useState(''),[errorMsg,setErrorMsg]=useState(''),[downloadingId,setDownloadingId]=useState<string|null>(null);
+
+  const approve=useMutation({
+    mutationFn:()=>adminApplicationsApi.approveApplication(id),
+    onSuccess:()=>{
+      void qc.invalidateQueries({queryKey:keys.adminApplication(id)});
+      void qc.invalidateQueries({queryKey:['admin-agent-applications']});
+      void qc.invalidateQueries({queryKey:['admin-agents']});
+      void qc.invalidateQueries({queryKey:['admin-users']});
+      void qc.invalidateQueries({queryKey:['admin-audit-logs']});
+      setErrorMsg('');
+      setMessage('Başvuru onaylandı. Emlakçı profili oluşturuldu ve kullanıcı rolü AGENT olarak güncellendi.');
+      toast({title:'Başvuru onaylandı.'});
+    },
+    onError:(err)=>{setMessage('');setErrorMsg(showError(err));},
+  });
+
+  const reject=useMutation({
+    mutationFn:()=>adminApplicationsApi.rejectApplication(id,reason.trim()),
+    onSuccess:()=>{
+      void qc.invalidateQueries({queryKey:keys.adminApplication(id)});
+      void qc.invalidateQueries({queryKey:['admin-agent-applications']});
+      void qc.invalidateQueries({queryKey:['admin-audit-logs']});
+      setErrorMsg('');
+      setMessage('Başvuru reddedildi.');
+      toast({title:'Başvuru reddedildi.'});
+    },
+    onError:(err)=>{setMessage('');setErrorMsg(showError(err));},
+  });
+
+  const dl=async(docId:string,originalName:string)=>{
+    setErrorMsg('');
+    setDownloadingId(docId);
+    try{
+      const blob=await adminApplicationsApi.getApplicationDocument(id,docId);
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');
+      a.href=url;
+      a.download=originalName||'basvuru-belgesi';
+      a.click();
+      URL.revokeObjectURL(url);
+    }catch(e){
+      setErrorMsg(showError(e));
+    }finally{
+      setDownloadingId(null);
+    }
+  };
+
   if(!match)return null;
-  return <AdminLayout><Link href="/admin/basvurular" className="mb-4 inline-flex items-center gap-2 text-sm text-muted-foreground"><ArrowLeft size={15}/> Başvurular</Link>{q.isLoading?<div className="surface p-8"><div className="skeleton h-48"/></div>:q.error?<ErrorState message={showError(q.error)}/>:q.data&&<div className="grid gap-5 lg:grid-cols-[1fr_330px]"><div className="surface p-6"><div className="flex items-start justify-between"><div><p className="text-xs font-bold uppercase tracking-widest text-primary">Başvuru ayrıntısı</p><h2 className="mt-1 font-display text-2xl font-extrabold">{q.data.companyName}</h2></div><span className="rounded-full bg-secondary px-3 py-1 text-xs">{labels[q.data.status]}</span></div><div className="mt-6 grid gap-5 border-t border-border pt-5 sm:grid-cols-2"><Info label="Yetkili" value={`${q.data.authorizedFirstName} ${q.data.authorizedLastName}`}/><Info label="Başvuran e-posta" value={q.data.user.email}/><Info label="Telefon" value={q.data.phone}/><Info label="Firma e-postası" value={q.data.email}/><Info label="Vergi numarası" value={q.data.taxNumber}/><Info label="Konum" value={`${q.data.city}, ${q.data.district}`}/><Info label="Adres" value={q.data.address}/><Info label="Başvuru tarihi" value={new Date(q.data.createdAt).toLocaleString('tr-TR')}/></div>{q.data.description&&<p className="mt-5 rounded-xl bg-muted p-4 text-sm leading-6">{q.data.description}</p>}<div className="mt-6"><h3 className="font-bold">Belgeler</h3>{docs.isLoading?<div className="skeleton mt-3 h-16"/>:docs.error?<p className="mt-2 text-sm text-destructive">{showError(docs.error)}</p>:docs.data?.length?<div className="mt-3 grid gap-2 sm:grid-cols-2">{docs.data.map(doc=><button key={doc.id} onClick={()=>void dl(doc.id)} className="rounded-xl border border-border p-4 text-left hover:border-primary"><b className="block text-sm">{doc.documentType==='TAX_CERTIFICATE'?'Vergi levhası':'Yetki belgesi'}</b><small className="mt-1 block text-muted-foreground">{doc.originalName} · {(doc.sizeBytes/1024).toFixed(1)} KB</small><small className="mt-2 block text-primary">Güvenli belgeyi indir</small></button>)}</div>:<p className="mt-2 text-sm text-muted-foreground">Başvuruya belge eklenmemiş.</p>}</div></div><aside className="surface h-fit p-5"><h3 className="font-display text-xl font-bold">İnceleme</h3><p className="mt-2 text-sm text-muted-foreground">Onay için vergi ve yetki belgelerinin ikisi de gerekli.</p><button onClick={()=>approve.mutate()} disabled={approve.isPending||q.data.status!=='PENDING'} className="mt-5 h-11 w-full rounded-xl bg-primary font-bold text-white disabled:opacity-50">{approve.isPending?'Onaylanıyor…':'Başvuruyu onayla'}</button><label className="mt-5 grid gap-2 text-sm font-semibold">Red nedeni<textarea className={`${inputClass} h-28 py-3`} value={reason} onChange={e=>setReason(e.target.value)} placeholder="Başvurana iletilecek açıklama"/></label><button disabled={!reason.trim()||reject.isPending||q.data.status!=='PENDING'} onClick={()=>reject.mutate()} className="mt-3 h-11 w-full rounded-xl border border-destructive/40 font-bold text-destructive disabled:opacity-40">Başvuruyu reddet</button>{message&&<p className="mt-3 text-sm text-primary">{message}</p>}{(approve.error||reject.error)&&<p className="mt-3 text-sm text-destructive">{showError(approve.error||reject.error)}</p>}</aside></div>}</AdminLayout>;
+  if(isMock)return <AdminLayout><EmptyState title="Bu özellik gerçek API bağlantısı gerektirir" text="Başvuru detayını görüntülemek için gerçek API modunda giriş yapın." href="/ilanlar" action="İlanları keşfet"/></AdminLayout>;
+
+  const trimmedReason=reason.trim();
+  const isPending=q.data?.status==='PENDING';
+
+  return <AdminLayout>
+    <Link href="/admin/basvurular" className="mb-4 inline-flex items-center gap-2 text-sm text-muted-foreground"><ArrowLeft size={15}/> Başvurular</Link>
+    {q.isLoading?<div className="surface p-8"><div className="skeleton h-48"/></div>:q.error?<ErrorState retry={()=>q.refetch()} message={showError(q.error)}/>:q.data&&<div className="grid gap-5 lg:grid-cols-[1fr_330px]">
+      <div className="surface p-6">
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-widest text-primary">Başvuru ayrıntısı</p>
+            <h2 className="mt-1 font-display text-2xl font-extrabold">{q.data.companyName}</h2>
+          </div>
+          <span className="rounded-full bg-secondary px-3 py-1 text-xs font-semibold" data-testid="badge-admin-app-status">{labels[q.data.status]}</span>
+        </div>
+        <div className="mt-6 grid gap-5 border-t border-border pt-5 sm:grid-cols-2">
+          <Info label="Yetkili" value={`${q.data.authorizedFirstName} ${q.data.authorizedLastName}`}/>
+          <Info label="Başvuran hesap" value={`${q.data.user.email} (${labels[q.data.user.role]} · ${q.data.user.isActive?'Aktif':'Pasif'})`}/>
+          <Info label="Telefon" value={q.data.phone}/>
+          <Info label="Firma e-postası" value={q.data.email}/>
+          <Info label="Vergi numarası" value={q.data.taxNumber}/>
+          <Info label="Konum" value={`${q.data.city}, ${q.data.district}`}/>
+          <Info label="Adres" value={q.data.address}/>
+          <Info label="Başvuru tarihi" value={new Date(q.data.createdAt).toLocaleString('tr-TR')}/>
+          {q.data.reviewedAt&&<Info label="İncelenme tarihi" value={new Date(q.data.reviewedAt).toLocaleString('tr-TR')}/>}
+        </div>
+        {q.data.description&&<p className="mt-5 rounded-xl bg-muted p-4 text-sm leading-6">{q.data.description}</p>}
+        {q.data.rejectionReason&&<div className="mt-5 rounded-xl bg-rose-50 p-4 text-sm text-rose-800"><b>Red nedeni:</b> {q.data.rejectionReason}</div>}
+        <div className="mt-6">
+          <h3 className="font-bold">Belgeler</h3>
+          {docs.isLoading?<div className="skeleton mt-3 h-16"/>:docs.error?<p className="mt-2 text-sm text-destructive">{showError(docs.error)}</p>:docs.data?.length?<div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {docs.data.map(doc=><button key={doc.id} type="button" disabled={downloadingId===doc.id} data-testid={`button-admin-download-${doc.documentType}`} onClick={()=>void dl(doc.id,doc.originalName)} className="rounded-xl border border-border p-4 text-left hover:border-primary disabled:opacity-60">
+              <b className="block text-sm">{labels[doc.documentType]||doc.documentType}</b>
+              <small className="mt-1 block text-muted-foreground">{doc.originalName} · {(doc.sizeBytes/1024).toFixed(1)} KB</small>
+              <small className="mt-2 block text-primary">{downloadingId===doc.id?'İndiriliyor…':'Güvenli belgeyi indir'}</small>
+            </button>)}
+          </div>:<p className="mt-2 text-sm text-muted-foreground">Başvuruya belge eklenmemiş.</p>}
+        </div>
+      </div>
+      <aside className="surface h-fit p-5">
+        <h3 className="font-display text-xl font-bold">İnceleme</h3>
+        {isPending?<>
+          <p className="mt-2 text-sm text-muted-foreground">Onay için Vergi Levhası ve Yetki Belgesi dosyalarının ikisi de yüklenmiş olmalıdır.</p>
+          <button type="button" data-testid="button-approve-application" onClick={()=>{setMessage('');setErrorMsg('');approve.mutate();}} disabled={approve.isPending||reject.isPending} className="mt-5 h-11 w-full rounded-xl bg-primary font-bold text-white disabled:opacity-50">{approve.isPending?'Onaylanıyor…':'Başvuruyu onayla'}</button>
+          <label className="mt-5 grid gap-2 text-sm font-semibold">Red nedeni (3–500 karakter)<textarea className={`${inputClass} h-28 py-3`} data-testid="textarea-reject-reason" value={reason} maxLength={500} onChange={e=>setReason(e.target.value)} placeholder="Başvurana iletilecek açıklama"/></label>
+          <button type="button" data-testid="button-reject-application" disabled={trimmedReason.length<3||trimmedReason.length>500||reject.isPending||approve.isPending} onClick={()=>{if(window.confirm('Başvuruyu reddetmek istediğinize emin misiniz?')){setMessage('');setErrorMsg('');reject.mutate();}}} className="mt-3 h-11 w-full rounded-xl border border-destructive/40 font-bold text-destructive disabled:opacity-40">{reject.isPending?'Reddediliyor…':'Başvuruyu reddet'}</button>
+        </>:<p className="mt-2 text-sm text-muted-foreground">Bu başvuru <b>{labels[q.data.status]}</b> durumunda olduğu için yeniden onaylanamaz veya reddedilemez.</p>}
+        {message&&<p role="status" className="mt-3 text-sm text-primary" data-testid="text-admin-app-message">{message}</p>}
+        {errorMsg&&<p role="alert" className="mt-3 text-sm text-destructive" data-testid="text-admin-app-error">{errorMsg}</p>}
+      </aside>
+    </div>}
+  </AdminLayout>;
 }
 
 function AdminAgentsPage() {
-  const [active,setActive]=useState(''),[page,setPage]=useState(1); const data=useAdminAgents({page,limit:20,...(active?{isActive:active as 'true'|'false'}:{})});
-  return <AdminLayout><SectionTitle eyebrow="Emlakçı yönetimi" title="Emlakçılar" description="Emlakçı profili ve bağlı kullanıcı hesabı farklı durumlara sahiptir."/><select className={`${inputClass} mb-4 max-w-xs`} value={active} onChange={e=>{setActive(e.target.value);setPage(1);}}><option value="">Tüm profil durumları</option><option value="true">Profil aktif</option><option value="false">Profil pasif</option></select>{data.isLoading?<div className="surface p-6"><div className="skeleton h-48"/></div>:data.error?<ErrorState retry={()=>data.refetch()} message={showError(data.error)}/>:data.data?.items.length?<><div className="surface overflow-x-auto"><table className="data-table"><thead><tr><th>Firma</th><th>Konum</th><th>Hesap durumu</th><th>Profil durumu</th><th></th></tr></thead><tbody>{data.data.items.map(a=><tr key={a.id}><td><b>{a.companyName}</b><small>{a.user.email}</small></td><td>{a.city}, {a.district}</td><td><StatusPill active={a.user.isActive}/></td><td><StatusPill active={a.isActive}/></td><td><Link href={`/admin/emlakcilar/${a.id}`} className="text-sm font-bold text-primary">Detay</Link></td></tr>)}</tbody></table></div><Pagination page={data.data.page} limit={data.data.limit} total={data.data.total} onChange={setPage}/></>:<EmptyState title="Emlakçı kaydı bulunamadı" text="Sonuçlar filtreyle eşleşmiyor."/>}</AdminLayout>;
+  const isMock=DATA_MODE==='mock';
+  const [companyName,setCompanyName]=useState(''),[city,setCity]=useState(''),[district,setDistrict]=useState(''),[active,setActive]=useState(''),[page,setPage]=useState(1);
+  const data=useAdminAgents({
+    page,
+    limit:20,
+    ...(companyName.trim()?{companyName:companyName.trim()}:{}),
+    ...(city.trim()?{city:city.trim()}:{}),
+    ...(district.trim()?{district:district.trim()}:{}),
+    ...(active?{isActive:active as 'true'|'false'}:{}),
+  },!isMock);
+  if(isMock)return <AdminLayout><EmptyState title="Bu özellik gerçek API bağlantısı gerektirir" text="Emlakçıları yönetmek için gerçek API modunda giriş yapın." href="/ilanlar" action="İlanları keşfet"/></AdminLayout>;
+  return <AdminLayout>
+    <SectionTitle eyebrow="Emlakçı yönetimi" title="Emlakçılar" description="Emlakçı profili ve bağlı kullanıcı hesabı farklı durumlara sahiptir."/>
+    <div className="surface mb-4 grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4">
+      <input className={inputClass} placeholder="Firma adında ara" data-testid="input-admin-agents-company" value={companyName} onChange={e=>{setCompanyName(e.target.value);setPage(1);}}/>
+      <input className={inputClass} placeholder="Şehirde ara" data-testid="input-admin-agents-city" value={city} onChange={e=>{setCity(e.target.value);setPage(1);}}/>
+      <input className={inputClass} placeholder="İlçede ara" data-testid="input-admin-agents-district" value={district} onChange={e=>{setDistrict(e.target.value);setPage(1);}}/>
+      <select className={inputClass} aria-label="Profil durumu filtresi" data-testid="select-admin-agents-active" value={active} onChange={e=>{setActive(e.target.value);setPage(1);}}>
+        <option value="">Tüm profil durumları</option>
+        <option value="true">Profil aktif</option>
+        <option value="false">Profil pasif</option>
+      </select>
+    </div>
+    {data.isLoading?<div className="surface p-6"><div className="skeleton h-48"/></div>:data.error?<ErrorState retry={()=>data.refetch()} message={showError(data.error)}/>:data.data?.items.length?<>
+      <div className="surface overflow-x-auto">
+        <table className="data-table">
+          <thead><tr><th>Firma</th><th>Konum</th><th>Hesap durumu</th><th>Emlakçı profil durumu</th><th></th></tr></thead>
+          <tbody>{data.data.items.map(a=><tr key={a.id} data-testid={`row-admin-agent-${a.id}`}><td><b>{a.companyName}</b><small>{a.user.email} · /emlakci/{a.slug}</small></td><td>{a.city}, {a.district}</td><td><StatusPill active={a.user.isActive}/></td><td><StatusPill active={a.isActive}/></td><td><Link href={`/admin/emlakcilar/${a.id}`} className="text-sm font-bold text-primary" data-testid={`link-admin-agent-${a.id}`}>Detay</Link></td></tr>)}</tbody>
+        </table>
+      </div>
+      <Pagination page={data.data.page} limit={data.data.limit} total={data.data.total} onChange={setPage}/>
+    </>:<EmptyState title="Emlakçı kaydı bulunamadı" text="Sonuçlar filtreyle eşleşmiyor."/>}
+  </AdminLayout>;
 }
 function AdminAgentDetailPage() {
-  const [match,params]=useRoute('/admin/emlakcilar/:id'); const id=params?.id||''; const q=useQuery({queryKey:['admin-agent',id],queryFn:()=>adminApi.agent(id),enabled:!!id}); const qc=useQueryClient(); const [message,setMessage]=useState('');
-  const mutation=useMutation({mutationFn:(active:boolean)=>adminApi.agentStatus(id,active),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-agent',id]});qc.invalidateQueries({queryKey:['admin-agents']});setMessage('Emlakçı profil durumu güncellendi.');}});
+  const isMock=DATA_MODE==='mock';
+  const [match,params]=useRoute('/admin/emlakcilar/:id'); const id=params?.id||'';
+  const {toast}=useToast();
+  const q=useAdminAgent(id,!isMock); const qc=useQueryClient();
+  const [message,setMessage]=useState(''); const [errorMsg,setErrorMsg]=useState('');
+  const mutation=useMutation({
+    mutationFn:(active:boolean)=>adminAgentsApi.updateAgentStatus(id,active),
+    onSuccess:()=>{
+      void qc.invalidateQueries({queryKey:keys.adminAgent(id)});
+      void qc.invalidateQueries({queryKey:['admin-agents']});
+      if(q.data?.slug)void qc.invalidateQueries({queryKey:keys.agent(q.data.slug)});
+      void qc.invalidateQueries({queryKey:['agent-properties']});
+      void qc.invalidateQueries({queryKey:['properties']});
+      void qc.invalidateQueries({queryKey:['property']});
+      void qc.invalidateQueries({queryKey:['admin-audit-logs']});
+      setErrorMsg('');
+      setMessage('Emlakçı profil durumu güncellendi.');
+      toast({title:'Emlakçı profil durumu güncellendi.'});
+    },
+    onError:(err)=>{setMessage('');setErrorMsg(showError(err));},
+  });
   if(!match)return null;
-  return <AdminLayout><Link href="/admin/emlakcilar" className="mb-4 inline-flex items-center gap-2 text-sm text-muted-foreground"><ArrowLeft size={15}/> Emlakçılar</Link>{q.isLoading?<div className="surface p-8"><div className="skeleton h-48"/></div>:q.error?<ErrorState message={showError(q.error)}/>:q.data&&<div className="surface p-7"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-widest text-primary">Emlakçı profili</p><h2 className="mt-1 font-display text-2xl font-extrabold">{q.data.companyName}</h2><p className="mt-1 text-sm text-muted-foreground">{q.data.city}, {q.data.district} · /emlakci/{q.data.slug}</p></div><button onClick={()=>mutation.mutate(!q.data?.isActive)} className="rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-white">{q.data.isActive?'Profili pasife al':'Profili aktifleştir'}</button></div><div className="mt-6 grid gap-4 border-t border-border pt-5 sm:grid-cols-2"><Info label="Hesap durumu" value={q.data.user.isActive?'Aktif':'Pasif'}/><Info label="Emlakçı profil durumu" value={q.data.isActive?'Aktif':'Pasif'}/><Info label="Kullanıcı" value={q.data.user.email}/><Info label="Telefon" value={q.data.phone}/><Info label="E-posta" value={q.data.email}/><Info label="Adres" value={q.data.address}/><Info label="Vergi numarası" value={q.data.taxNumber}/></div>{q.data.description&&<p className="mt-5 rounded-xl bg-muted p-4 text-sm">{q.data.description}</p>}{message&&<p className="mt-4 text-sm text-primary">{message}</p>}{mutation.error&&<p className="mt-3 text-sm text-destructive">{showError(mutation.error)}</p>}</div>}</AdminLayout>;
+  if(isMock)return <AdminLayout><EmptyState title="Bu özellik gerçek API bağlantısı gerektirir" text="Emlakçı detayını görüntülemek için gerçek API modunda giriş yapın." href="/ilanlar" action="İlanları keşfet"/></AdminLayout>;
+  const toggleAgentStatus=()=>{
+    if(!q.data)return;
+    if(q.data.isActive&&!window.confirm('Emlakçı profilini pasife almak istediğinize emin misiniz? Pasif profilin public sayfası ve ilanları gizlenir.'))return;
+    setMessage('');setErrorMsg('');
+    mutation.mutate(!q.data.isActive);
+  };
+  return <AdminLayout>
+    <Link href="/admin/emlakcilar" className="mb-4 inline-flex items-center gap-2 text-sm text-muted-foreground"><ArrowLeft size={15}/> Emlakçılar</Link>
+    {q.isLoading?<div className="surface p-8"><div className="skeleton h-48"/></div>:q.error?<ErrorState retry={()=>q.refetch()} message={showError(q.error)}/>:q.data&&<div className="surface p-7">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-2xl bg-muted text-primary">
+            {q.data.logoUrl&&fileUrl(q.data.logoUrl)?<img src={fileUrl(q.data.logoUrl)!} alt={`${q.data.companyName} logosu`} className="h-full w-full object-cover"/>:<Building2 size={28}/>}
+          </div>
+          <div>
+            <p className="text-xs font-bold uppercase tracking-widest text-primary">Emlakçı profili</p>
+            <h2 className="mt-1 font-display text-2xl font-extrabold">{q.data.companyName}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">{q.data.city}, {q.data.district} · /emlakci/{q.data.slug}</p>
+          </div>
+        </div>
+        <button type="button" disabled={mutation.isPending} data-testid="button-toggle-agent-status" onClick={toggleAgentStatus} className="rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">{mutation.isPending?'Güncelleniyor…':q.data.isActive?'Profili pasife al':'Profili aktifleştir'}</button>
+      </div>
+      <div className="mt-6 grid gap-4 border-t border-border pt-5 sm:grid-cols-2">
+        <Info label="Hesap durumu (User.isActive)" value={q.data.user.isActive?'Aktif':'Pasif'}/>
+        <Info label="Emlakçı profil durumu (AgentProfile.isActive)" value={q.data.isActive?'Aktif':'Pasif'}/>
+        <Info label="Kullanıcı hesabı" value={q.data.user.email}/>
+        <Info label="Telefon" value={q.data.phone}/>
+        <Info label="Firma e-postası" value={q.data.email}/>
+        <Info label="Adres" value={q.data.address}/>
+        <Info label="Vergi numarası" value={q.data.taxNumber}/>
+        <Info label="Kayıt tarihi" value={new Date(q.data.createdAt).toLocaleString('tr-TR')}/>
+      </div>
+      {q.data.description&&<p className="mt-5 rounded-xl bg-muted p-4 text-sm">{q.data.description}</p>}
+      {message&&<p role="status" className="mt-4 text-sm text-primary" data-testid="text-admin-agent-message">{message}</p>}
+      {errorMsg&&<p role="alert" className="mt-3 text-sm text-destructive" data-testid="text-admin-agent-error">{errorMsg}</p>}
+    </div>}
+  </AdminLayout>;
 }
 function AdminPropertiesPage() {
-  const [status,setStatus]=useState(''),[deleted,setDeleted]=useState('false'),[page,setPage]=useState(1); const data=useAdminProperties({page,limit:20,...(status?{status:status as PropertyStatus}:{}),deleted:deleted as 'true'|'false'});
-  return <AdminLayout><SectionTitle eyebrow="İçerik denetimi" title="İlanlar" description="İlan durumlarını ve emlakçı kayıtlarını gözden geçirin."/><div className="mb-4 flex flex-wrap gap-3"><select className={`${inputClass} max-w-xs`} value={status} onChange={e=>{setStatus(e.target.value);setPage(1);}}><option value="">Tüm durumlar</option>{['ACTIVE','INACTIVE','SOLD','RENTED'].map(s=><option key={s} value={s}>{labels[s]}</option>)}</select><select className={`${inputClass} max-w-xs`} value={deleted} onChange={e=>{setDeleted(e.target.value);setPage(1);}}><option value="false">Silinmemiş ilanlar</option><option value="true">Silinmiş ilanlar</option></select></div>{data.isLoading?<div className="surface p-6"><div className="skeleton h-48"/></div>:data.error?<ErrorState retry={()=>data.refetch()} message={showError(data.error)}/>:data.data?.items.length?<><div className="surface overflow-x-auto"><table className="data-table"><thead><tr><th>İlan</th><th>Konum</th><th>Durum</th><th>Emlakçı</th><th>Tarih</th><th></th></tr></thead><tbody>{data.data.items.map(p=><tr key={p.id}><td><b>{p.title}</b><small>{money(p.price)} · {labels[p.listingType]}</small></td><td>{p.city}, {p.district}</td><td>{labels[p.status]}</td><td>{p.agent.companyName}<small>{p.agent.isActive?'Profil aktif':'Profil pasif'}</small></td><td>{new Date(p.createdAt).toLocaleDateString('tr-TR')}</td><td><Link href={`/admin/ilanlar/${p.id}`} className="text-sm font-bold text-primary">Detay</Link></td></tr>)}</tbody></table></div><Pagination page={data.data.page} limit={data.data.limit} total={data.data.total} onChange={setPage}/></>:<EmptyState title="İlan bulunamadı" text="Seçilen filtrelerle eşleşen ilan bulunmuyor."/>}</AdminLayout>;
+  const isMock=DATA_MODE==='mock';
+  const [status,setStatus]=useState(''),[listingType,setListingType]=useState(''),[city,setCity]=useState(''),[deleted,setDeleted]=useState('false'),[page,setPage]=useState(1);
+  const data=useAdminProperties({
+    page,
+    limit:20,
+    ...(status?{status:status as PropertyStatus}:{}),
+    ...(listingType?{listingType:listingType as 'SALE'|'RENT'}:{}),
+    ...(city.trim()?{city:city.trim()}:{}),
+    deleted:deleted as 'true'|'false',
+  },!isMock);
+  if(isMock)return <AdminLayout><EmptyState title="Bu özellik gerçek API bağlantısı gerektirir" text="İlan moderasyonunu kullanmak için gerçek API modunda giriş yapın." href="/ilanlar" action="İlanları keşfet"/></AdminLayout>;
+  return <AdminLayout>
+    <SectionTitle eyebrow="İçerik denetimi" title="İlanlar" description="İlan durumlarını ve emlakçı kayıtlarını gözden geçirin."/>
+    <div className="surface mb-4 grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4">
+      <select className={inputClass} aria-label="Durum filtresi" data-testid="select-admin-props-status" value={status} onChange={e=>{setStatus(e.target.value);setPage(1);}}>
+        <option value="">Tüm durumlar</option>
+        {['ACTIVE','INACTIVE','SOLD','RENTED'].map(s=><option key={s} value={s}>{labels[s]}</option>)}
+      </select>
+      <select className={inputClass} aria-label="İlan türü filtresi" data-testid="select-admin-props-listingType" value={listingType} onChange={e=>{setListingType(e.target.value);setPage(1);}}>
+        <option value="">Satılık ve kiralık</option>
+        <option value="SALE">Satılık</option>
+        <option value="RENT">Kiralık</option>
+      </select>
+      <input className={inputClass} placeholder="Şehir adı (tam eşleşme)" data-testid="input-admin-props-city" value={city} onChange={e=>{setCity(e.target.value);setPage(1);}}/>
+      <select className={inputClass} aria-label="Silinme durumu" data-testid="select-admin-props-deleted" value={deleted} onChange={e=>{setDeleted(e.target.value);setPage(1);}}>
+        <option value="false">Silinmemiş ilanlar</option>
+        <option value="true">Silinmiş ilanlar</option>
+      </select>
+    </div>
+    {data.isLoading?<div className="surface p-6"><div className="skeleton h-48"/></div>:data.error?<ErrorState retry={()=>data.refetch()} message={showError(data.error)}/>:data.data?.items.length?<>
+      <div className="surface overflow-x-auto">
+        <table className="data-table">
+          <thead><tr><th>İlan</th><th>Konum</th><th>Durum</th><th>Emlakçı</th><th>Tarih</th><th></th></tr></thead>
+          <tbody>{data.data.items.map(p=><tr key={p.id} data-testid={`row-admin-prop-${p.id}`}><td><b>{p.title}</b><small>{money(p.price)} · {labels[p.listingType]} · {labels[p.propertyType]}</small></td><td>{p.city}, {p.district}</td><td>{labels[p.status]}{p.deletedAt?' (Silinmiş)':''}</td><td>{p.agent.companyName}<small>{p.agent.isActive?'Profil aktif':'Profil pasif'} · {p.agent.user.isActive?'Hesap aktif':'Hesap pasif'}</small></td><td>{new Date(p.createdAt).toLocaleDateString('tr-TR')}</td><td><Link href={`/admin/ilanlar/${p.id}`} className="text-sm font-bold text-primary" data-testid={`link-admin-prop-${p.id}`}>Detay</Link></td></tr>)}</tbody>
+        </table>
+      </div>
+      <Pagination page={data.data.page} limit={data.data.limit} total={data.data.total} onChange={setPage}/>
+    </>:<EmptyState title="İlan bulunamadı" text="Seçilen filtrelerle eşleşen ilan bulunmuyor."/>}
+  </AdminLayout>;
 }
 function AdminPropertyDetailPage() {
-  const [match,params]=useRoute('/admin/ilanlar/:id'); const id=params?.id||''; const q=useQuery({queryKey:['admin-property',id],queryFn:()=>propertiesApi.adminDetail(id),enabled:!!id}); const qc=useQueryClient(); const [reason,setReason]=useState(''),[message,setMessage]=useState('');
-  const deactivate=useMutation({mutationFn:()=>propertiesApi.moderate(id,reason),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-property',id]});qc.invalidateQueries({queryKey:['admin-properties']});setMessage('İlan pasife alındı.');}});
-  const remove=useMutation({mutationFn:()=>propertiesApi.adminDelete(id,reason),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-property',id]});qc.invalidateQueries({queryKey:['admin-properties']});setMessage('İlan silindi.');}});
+  const isMock=DATA_MODE==='mock';
+  const [match,params]=useRoute('/admin/ilanlar/:id'); const id=params?.id||'';
+  const {toast}=useToast(); const invalidate=useInvalidateMarketplace();
+  const q=useAdminProperty(id,!isMock); const qc=useQueryClient();
+  const [reason,setReason]=useState(''),[message,setMessage]=useState(''),[errorMsg,setErrorMsg]=useState('');
+
+  const deactivate=useMutation({
+    mutationFn:()=>adminPropertiesApi.deactivateProperty(id,reason.trim()),
+    onSuccess:()=>{
+      void qc.invalidateQueries({queryKey:keys.adminProperty(id)});
+      void qc.invalidateQueries({queryKey:['admin-properties']});
+      void qc.invalidateQueries({queryKey:['admin-audit-logs']});
+      invalidate(id);
+      setErrorMsg('');
+      setMessage('İlan pasife alındı.');
+      toast({title:'İlan pasife alındı.'});
+    },
+    onError:(err)=>{setMessage('');setErrorMsg(showError(err));},
+  });
+
+  const remove=useMutation({
+    mutationFn:()=>adminPropertiesApi.deleteProperty(id,reason.trim()),
+    onSuccess:()=>{
+      void qc.invalidateQueries({queryKey:keys.adminProperty(id)});
+      void qc.invalidateQueries({queryKey:['admin-properties']});
+      void qc.invalidateQueries({queryKey:['admin-audit-logs']});
+      invalidate(id);
+      setErrorMsg('');
+      setMessage('İlan silindi (soft delete).');
+      toast({title:'İlan silindi.'});
+    },
+    onError:(err)=>{setMessage('');setErrorMsg(showError(err));},
+  });
+
+  const removeImage=useMutation({
+    mutationFn:(imageId:string)=>adminPropertiesApi.deletePropertyImage(id,imageId),
+    onSuccess:()=>{
+      void qc.invalidateQueries({queryKey:keys.adminProperty(id)});
+      void qc.invalidateQueries({queryKey:['admin-audit-logs']});
+      invalidate(id);
+      setErrorMsg('');
+      setMessage('İlan fotoğrafı silindi.');
+      toast({title:'İlan fotoğrafı silindi.'});
+    },
+    onError:(err)=>{setMessage('');setErrorMsg(showError(err));},
+  });
+
   if(!match)return null;
-  return <AdminLayout><Link href="/admin/ilanlar" className="mb-4 inline-flex items-center gap-2 text-sm text-muted-foreground"><ArrowLeft size={15}/> İlanlar</Link>{q.isLoading?<div className="surface p-8"><div className="skeleton h-48"/></div>:q.error?<ErrorState message={showError(q.error)}/>:q.data&&<div className="grid gap-5 lg:grid-cols-[1fr_330px]"><article className="surface p-6"><p className="text-xs font-bold uppercase tracking-widest text-primary">İlan ayrıntısı</p><h2 className="mt-2 font-display text-2xl font-extrabold">{q.data.title}</h2><p className="mt-2 text-2xl font-extrabold text-primary">{money(q.data.price)}</p><div className="mt-5 grid gap-4 border-t border-border pt-5 sm:grid-cols-2"><Info label="Durum" value={labels[q.data.status]}/><Info label="İlan türü" value={labels[q.data.listingType]}/><Info label="Emlak türü" value={labels[q.data.propertyType]}/><Info label="Konum" value={`${q.data.neighborhood}, ${q.data.district}, ${q.data.city}`}/><Info label="Emlakçı" value={q.data.agent.companyName}/><Info label="Hesap durumu" value={q.data.agent.user.isActive?'Aktif':'Pasif'}/><Info label="Profil durumu" value={q.data.agent.isActive?'Aktif':'Pasif'}/><Info label="Adres" value={q.data.address}/></div><p className="mt-5 whitespace-pre-line leading-6 text-muted-foreground">{q.data.description}</p><div className="mt-5 rounded-xl bg-muted p-4 text-xs text-muted-foreground">İlan görsellerinin kimlikleri bu detay yanıtında yer almadığı için yönetici görsel silme işlemi bu ekranda sunulmamaktadır.</div></article><aside className="surface h-fit p-5"><h3 className="font-display text-xl font-bold">Moderasyon</h3><label className="mt-4 grid gap-2 text-sm font-semibold">İşlem nedeni<textarea className={`${inputClass} h-28 py-3`} value={reason} onChange={e=>setReason(e.target.value)} placeholder="Gerekli moderasyon açıklaması"/></label><button disabled={!reason.trim()||deactivate.isPending||q.data.status!=='ACTIVE'} onClick={()=>deactivate.mutate()} className="mt-4 h-11 w-full rounded-xl bg-primary font-bold text-white disabled:opacity-40">İlanı pasife al</button><button disabled={!reason.trim()||remove.isPending||q.data.deletedAt!==null} onClick={()=>{if(window.confirm('İlanı soft delete yapmak istediğinize emin misiniz?'))remove.mutate();}} className="mt-3 h-11 w-full rounded-xl border border-destructive/40 font-bold text-destructive disabled:opacity-40">İlanı sil</button>{message&&<p className="mt-3 text-sm text-primary">{message}</p>}{(deactivate.error||remove.error)&&<p className="mt-3 text-sm text-destructive">{showError(deactivate.error||remove.error)}</p>}</aside></div>}</AdminLayout>;
+  if(isMock)return <AdminLayout><EmptyState title="Bu özellik gerçek API bağlantısı gerektirir" text="İlan moderasyon detayını görüntülemek için gerçek API modunda giriş yapın." href="/ilanlar" action="İlanları keşfet"/></AdminLayout>;
+
+  const trimmedReason=reason.trim();
+  const validReason=trimmedReason.length>=3&&trimmedReason.length<=500;
+
+  return <AdminLayout>
+    <Link href="/admin/ilanlar" className="mb-4 inline-flex items-center gap-2 text-sm text-muted-foreground"><ArrowLeft size={15}/> İlanlar</Link>
+    {q.isLoading?<div className="surface p-8"><div className="skeleton h-48"/></div>:q.error?<ErrorState retry={()=>q.refetch()} message={showError(q.error)}/>:q.data&&<div className="grid gap-5 lg:grid-cols-[1fr_330px]">
+      <article className="surface p-6">
+        <p className="text-xs font-bold uppercase tracking-widest text-primary">İlan ayrıntısı</p>
+        <h2 className="mt-2 font-display text-2xl font-extrabold">{q.data.title}</h2>
+        <p className="mt-2 text-2xl font-extrabold text-primary">{money(q.data.price)}</p>
+        <div className="mt-5 grid gap-4 border-t border-border pt-5 sm:grid-cols-2">
+          <Info label="Durum" value={`${labels[q.data.status]}${q.data.deletedAt?' · Silinmiş':''}`}/>
+          <Info label="İlan türü" value={labels[q.data.listingType]}/>
+          <Info label="Emlak türü" value={labels[q.data.propertyType]}/>
+          <Info label="Oda / Alan" value={`${q.data.rooms}+${q.data.livingRooms} · Brüt ${area(q.data.grossAreaM2)} m²${q.data.netAreaM2?` · Net ${area(q.data.netAreaM2)} m²`:''}`}/>
+          <Info label="Konum" value={`${q.data.neighborhood}, ${q.data.district}, ${q.data.city}`}/>
+          <Info label="Koordinatlar" value={`${q.data.latitude}, ${q.data.longitude}`}/>
+          <Info label="Emlakçı" value={`${q.data.agent.companyName} (${q.data.agent.phone})`}/>
+          <Info label="Emlakçı e-postası" value={`${q.data.agent.email} · Hesap: ${q.data.agent.user.email}`}/>
+          <Info label="Hesap durumu" value={q.data.agent.user.isActive?'Aktif':'Pasif'}/>
+          <Info label="Profil durumu" value={q.data.agent.isActive?'Aktif':'Pasif'}/>
+          <Info label="Adres" value={q.data.address}/>
+          {q.data.deletedAt&&<Info label="Silinme tarihi" value={new Date(q.data.deletedAt).toLocaleString('tr-TR')}/>}
+        </div>
+        <p className="mt-5 whitespace-pre-line leading-6 text-muted-foreground">{q.data.description}</p>
+        <div className="mt-6 border-t border-border pt-5" data-testid="section-admin-property-images">
+          <h3 className="font-bold">İlan fotoğrafları ({q.data.images?.length||0})</h3>
+          {q.data.images?.length?<div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {q.data.images.map(image=><div key={image.id} className="overflow-hidden rounded-xl border border-border" data-testid={`card-admin-image-${image.id}`}>
+              <img src={fileUrl(image.url)||''} alt="İlan fotoğrafı" className="aspect-square w-full object-cover"/>
+              <div className="flex items-center justify-between p-2 text-xs">
+                <span className="font-semibold text-muted-foreground">{image.isCover?'Kapak':`Sıra #${image.sortOrder+1}`}</span>
+                <button type="button" disabled={removeImage.isPending} data-testid={`button-admin-delete-image-${image.id}`} onClick={()=>{if(window.confirm('Bu ilan fotoğrafını silmek istediğinize emin misiniz?')){setMessage('');setErrorMsg('');removeImage.mutate(image.id);}}} className="font-semibold text-destructive disabled:opacity-50">Sil</button>
+              </div>
+            </div>)}
+          </div>:<p className="mt-2 text-xs text-muted-foreground">Bu ilana ait canlı fotoğraf bulunmuyor.</p>}
+        </div>
+      </article>
+      <aside className="surface h-fit p-5">
+        <h3 className="font-display text-xl font-bold">Moderasyon</h3>
+        <label className="mt-4 grid gap-2 text-sm font-semibold">İşlem nedeni (3–500 karakter)<textarea className={`${inputClass} h-28 py-3`} data-testid="textarea-moderation-reason" maxLength={500} value={reason} onChange={e=>setReason(e.target.value)} placeholder="Gerekli moderasyon açıklaması"/></label>
+        <button type="button" data-testid="button-admin-deactivate-property" disabled={!validReason||deactivate.isPending||remove.isPending||q.data.status!=='ACTIVE'||q.data.deletedAt!==null} onClick={()=>{if(window.confirm('İlanı pasife almak istediğinize emin misiniz?')){setMessage('');setErrorMsg('');deactivate.mutate();}}} className="mt-4 h-11 w-full rounded-xl bg-primary font-bold text-white disabled:opacity-40">{deactivate.isPending?'İşleniyor…':'İlanı pasife al'}</button>
+        <button type="button" data-testid="button-admin-delete-property" disabled={!validReason||remove.isPending||deactivate.isPending||q.data.deletedAt!==null} onClick={()=>{if(window.confirm('İlanı soft delete yapmak istediğinize emin misiniz?')){setMessage('');setErrorMsg('');remove.mutate();}}} className="mt-3 h-11 w-full rounded-xl border border-destructive/40 font-bold text-destructive disabled:opacity-40">{remove.isPending?'Siliniyor…':'İlanı sil'}</button>
+        {message&&<p role="status" className="mt-3 text-sm text-primary" data-testid="text-admin-prop-message">{message}</p>}
+        {errorMsg&&<p role="alert" className="mt-3 text-sm text-destructive" data-testid="text-admin-prop-error">{errorMsg}</p>}
+      </aside>
+    </div>}
+  </AdminLayout>;
 }
 function AdminAuditPage() {
-  const [page,setPage]=useState(1); const q=useAdminAudit({page,limit:20});
-  return <AdminLayout><SectionTitle eyebrow="İzlenebilirlik" title="İşlem kayıtları" description="Yönetim eylemleri salt okunur biçimde listelenir."/>{q.isLoading?<div className="surface p-6"><div className="skeleton h-48"/></div>:q.error?<ErrorState retry={()=>q.refetch()} message={showError(q.error)}/>:q.data?.items.length?<><div className="surface overflow-x-auto"><table className="data-table"><thead><tr><th>Eylem</th><th>Varlık</th><th>Varlık kimliği</th><th>İşlemi yapan</th><th>Tarih</th></tr></thead><tbody>{q.data.items.map(log=><tr key={log.id}><td><b>{log.action}</b></td><td>{log.entityType}</td><td><code className="text-xs">{log.entityId}</code></td><td><code className="text-xs">{log.actorUserId}</code></td><td>{new Date(log.createdAt).toLocaleString('tr-TR')}</td></tr>)}</tbody></table></div>{q.data.items.map(log=>log.metadata&&<details key={`meta-${log.id}`} className="surface mt-2 p-4"><summary className="cursor-pointer text-sm font-semibold">Ek bilgiler · {log.action}</summary><pre className="mt-3 overflow-auto rounded-lg bg-muted p-3 text-xs">{JSON.stringify(log.metadata,null,2)}</pre></details>)}<Pagination page={q.data.page} limit={q.data.limit} total={q.data.total} onChange={setPage}/></>:<EmptyState title="İşlem kaydı yok" text="Kayıtlar oluştuğunda burada görünür."/>}</AdminLayout>;
+  const isMock=DATA_MODE==='mock';
+  const [entityType,setEntityType]=useState(''),[entityId,setEntityId]=useState(''),[page,setPage]=useState(1);
+  const validUuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(entityId.trim());
+  const q=useAdminAudit({
+    page,
+    limit:20,
+    ...(entityType?{entityType}:{}),
+    ...(validUuid?{entityId:entityId.trim()}:{}),
+  },!isMock);
+  if(isMock)return <AdminLayout><EmptyState title="Bu özellik gerçek API bağlantısı gerektirir" text="Audit kayıtlarını görüntülemek için gerçek API modunda giriş yapın." href="/ilanlar" action="İlanları keşfet"/></AdminLayout>;
+  return <AdminLayout>
+    <SectionTitle eyebrow="İzlenebilirlik" title="İşlem kayıtları" description="Yönetim eylemleri salt okunur biçimde listelenir."/>
+    <div className="surface mb-4 grid gap-3 p-4 sm:grid-cols-2">
+      <select className={inputClass} aria-label="Varlık türü filtresi" data-testid="select-admin-audit-entityType" value={entityType} onChange={e=>{setEntityType(e.target.value);setPage(1);}}>
+        <option value="">Tüm varlık türleri</option>
+        {['USER','AGENT_APPLICATION','AGENT_APPLICATION_DOCUMENT','AGENT_PROFILE','PROPERTY','PROPERTY_IMAGE'].map(t=><option key={t} value={t}>{t}</option>)}
+      </select>
+      <input className={inputClass} placeholder="Varlık UUID filtresi (tam UUID)" data-testid="input-admin-audit-entityId" value={entityId} onChange={e=>{setEntityId(e.target.value);setPage(1);}}/>
+    </div>
+    {entityId.trim()&&!validUuid&&<p className="mb-3 text-xs text-muted-foreground">Varlık kimliği filtresi yalnızca geçerli bir UUID girildiğinde uygulanır.</p>}
+    {q.isLoading?<div className="surface p-6"><div className="skeleton h-48"/></div>:q.error?<ErrorState retry={()=>q.refetch()} message={showError(q.error)}/>:q.data?.items.length?<>
+      <div className="surface overflow-x-auto">
+        <table className="data-table">
+          <thead><tr><th>Eylem</th><th>Varlık</th><th>Varlık kimliği</th><th>İşlemi yapan</th><th>Tarih</th></tr></thead>
+          <tbody>{q.data.items.map(log=><tr key={log.id} data-testid={`row-admin-audit-${log.id}`}><td><b>{log.action}</b></td><td>{log.entityType}</td><td><code className="text-xs">{log.entityId}</code></td><td><code className="text-xs">{log.actorUserId}</code></td><td>{new Date(log.createdAt).toLocaleString('tr-TR')}</td></tr>)}</tbody>
+        </table>
+      </div>
+      {q.data.items.map(log=>log.metadata&&<details key={`meta-${log.id}`} className="surface mt-2 p-4"><summary className="cursor-pointer text-sm font-semibold">Ek bilgiler · {log.action}</summary><pre className="mt-3 overflow-auto rounded-lg bg-muted p-3 text-xs">{JSON.stringify(log.metadata,null,2)}</pre></details>)}
+      <Pagination page={q.data.page} limit={q.data.limit} total={q.data.total} onChange={setPage}/>
+    </>:<EmptyState title="İşlem kaydı yok" text="Kayıtlar oluştuğunda burada görünür."/>}
+  </AdminLayout>;
 }
 
 function HowToListPage() {
@@ -730,7 +1661,7 @@ function HowToListPage() {
         { title: 'Hesap oluştur veya giriş yap', description: 'Hesap kaydı ve oturum açma mevcut API işlemleridir.', status: 'Mevcut' },
         { title: 'Emlakçı başvurusunu gönder', description: 'Firma/yetkili iletişim bilgileri ve vergi numarası girilir; vergi levhası ve yetki belgesi yüklenebilir.', status: 'Mevcut' },
         { title: 'Yönetici incelemesini bekle', description: 'Başvuru durumu ve onay admin akışında yönetilir; süre garantisi yoktur.', status: 'Mevcut' },
-        { title: 'İlan ve profili yönet', description: 'AGENT rolü verilen hesap ilan oluşturabilir, düzenleyebilir ve profilini güncelleyebilir.', status: 'Hazırlık' },
+        { title: 'İlan ve profili yönet', description: 'AGENT rolü verilen hesap ilan oluşturabilir, düzenleyebilir ve profilini güncelleyebilir.', status: 'Mevcut' },
       ],
     },
     {
@@ -770,6 +1701,7 @@ function HowToListPage() {
       ],
     },
   ];
+  const { user } = useAuth();
   const [location, go] = useLocation();
   const search = useSearch();
   const queryAudience = new URLSearchParams(search).get('audience');
@@ -798,7 +1730,11 @@ function HowToListPage() {
     go(`${location}?${params.toString()}`);
   };
   const selected = audiences.find(audience => audience.key === selectedAudience);
-  const selectedAction = selected ? { href: selected.actionHref, label: selected.actionLabel, title: selected.nextTitle, description: selected.nextDescription } : null;
+  const selectedAction = selected?.key === 'advisor' || selected?.key === 'office'
+    ? user?.role === 'AGENT'
+      ? { href: '/panel/ilanlar/yeni', label: 'Yeni ilan formunu aç', title: 'Onaylı emlakçı hesabıyla devam edin', description: 'Bu bağlantı mevcut tekil ilan oluşturma formunu açar.' }
+      : { href: '/emlakci-basvuru', label: selected.key === 'office' ? 'Ofis başvurusunu aç' : 'Emlakçı başvurusuna geç', title: 'Mevcut profesyonel başvurusuna geçin', description: 'Hesabınız yoksa bu rota sizi giriş sayfasına yönlendirir. Başvuru gerçek API’ye gönderilir.' }
+    : selected ? { href: selected.actionHref, label: selected.actionLabel, title: selected.nextTitle, description: selected.nextDescription } : null;
   const faqs = [
     ['Kimler YUVA’da ilan verebilir?', 'Mevcut uygulamada ilan oluşturma, emlakçı başvurusu onaylanmış ve AGENT rolü verilmiş hesaplarla sınırlıdır. Bireysel ev sahipleri için doğrudan ilan verme akışı henüz bulunmuyor. Emlak ofisleri şirket bilgileriyle profesyonel başvuru yapabilir; ekip ve toplu ilan yönetimi mevcut değil.'],
     ['İlan vermek için hangi bilgiler gerekir?', 'İlan formunda başlık, satılık/kiralık türü, emlak tipi, fiyat, brüt alan, oda ve salon sayısı, açıklama, şehir, ilçe, mahalle, açık adres ve harita koordinatları istenir. Bazı ek özellikler isteğe bağlıdır.'],
