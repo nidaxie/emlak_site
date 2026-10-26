@@ -32,11 +32,13 @@ FROM node:24-bookworm-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
-COPY --from=build /app/package.json /app/package-lock.json ./
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/apps/web/package.json ./apps/web/package.json
-COPY --from=build /app/apps/web/vite.config.ts ./apps/web/vite.config.ts
-COPY --from=build /app/apps/web/dist ./apps/web/dist
+COPY --from=build --chown=node:node /app/apps/web/package.json ./apps/web/package.json
+COPY --from=build --chown=node:node /app/apps/web/server.mjs ./apps/web/server.mjs
+COPY --from=build --chown=node:node /app/apps/web/dist ./apps/web/dist
+
+USER node
 
 EXPOSE 3000
-CMD ["npm", "run", "start", "-w", "web"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+CMD ["node", "apps/web/server.mjs"]

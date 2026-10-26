@@ -30,12 +30,18 @@ FROM node:24-bookworm-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
-COPY --from=build /app/package.json /app/package-lock.json ./
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/apps/api/package.json ./apps/api/package.json
-COPY --from=build /app/apps/api/dist ./apps/api/dist
-COPY --from=build /app/apps/api/prisma ./apps/api/prisma
-COPY --from=build /app/apps/api/prisma7.config.ts ./apps/api/prisma7.config.ts
+RUN mkdir -p /app/storage && chown -R node:node /app
+
+COPY --from=build --chown=node:node /app/package.json /app/package-lock.json ./
+COPY --from=build --chown=node:node /app/node_modules ./node_modules
+COPY --from=build --chown=node:node /app/apps/api/package.json ./apps/api/package.json
+COPY --from=build --chown=node:node /app/apps/api/dist ./apps/api/dist
+COPY --from=build --chown=node:node /app/apps/api/prisma ./apps/api/prisma
+COPY --from=build --chown=node:node /app/apps/api/prisma7.config.ts ./apps/api/prisma7.config.ts
+
+USER node
 
 EXPOSE 3001
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:3001/api/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["node", "apps/api/dist/main.js"]

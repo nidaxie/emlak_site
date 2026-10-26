@@ -13,6 +13,18 @@ export function configureApp(app: INestApplication) {
   const config = app.get(ConfigService);
 
   app.use(cookieParser());
+  app.use(
+    (
+      _req: unknown,
+      res: { setHeader: (name: string, value: string) => void },
+      next: () => void,
+    ) => {
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('X-Frame-Options', 'DENY');
+      res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+      next();
+    },
+  );
   app.setGlobalPrefix('api');
   app.enableVersioning({
     type: VersioningType.URI,
