@@ -20,9 +20,10 @@ RUN set -eu; \
 
 COPY apps/web apps/web
 
-ARG NEXT_PUBLIC_API_URL=http://localhost:3001/api/v1
-ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
-ENV NEXT_TELEMETRY_DISABLED=1
+ARG VITE_DATA_MODE=api
+ARG VITE_API_BASE_URL=http://localhost:3001/api/v1
+ENV VITE_DATA_MODE=$VITE_DATA_MODE
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 
 RUN npm run build -w web
 
@@ -30,10 +31,12 @@ FROM node:24-bookworm-slim AS runner
 
 WORKDIR /app
 ENV NODE_ENV=production
-ENV NEXT_TELEMETRY_DISABLED=1
 
-COPY --from=build /app/apps/web/.next/standalone ./
-COPY --from=build /app/apps/web/.next/static ./apps/web/.next/static
+COPY --from=build /app/package.json /app/package-lock.json ./
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/apps/web/package.json ./apps/web/package.json
+COPY --from=build /app/apps/web/vite.config.ts ./apps/web/vite.config.ts
+COPY --from=build /app/apps/web/dist ./apps/web/dist
 
 EXPOSE 3000
-CMD ["node", "apps/web/server.js"]
+CMD ["npm", "run", "start", "-w", "web"]
