@@ -34,25 +34,48 @@ Frontend entegrasyon sözleşmesi:
 - `docs/api-endpoints.md`
 - `docs/frontend-types.ts`
 
-Yerel geliştirmede PostgreSQL/PostGIS Docker'da çalışır. API ve web uygulaması makinede çalışır. Production imajları `apps/api/Dockerfile` ve `apps/web/Dockerfile` içindedir; depo kökünden build edilir.
+Production imajları `apps/api/Dockerfile` ve `apps/web/Dockerfile` içindedir; depo kökünden build edilir.
 
-## Local setup
+## Local Docker
+
+Docker Desktop proje grubu `emlak-site`dir. Üç servis birlikte başlar: `postgres`, `api`, `web`.
+
+```bash
+cp .env.example .env
+docker compose up -d --build
+```
+
+Tarayıcı adresi yalnızca `http://localhost:3000`dir. `/`, `/ilanlar`, `/giris` ve diğer Wouter yolları SPA olarak sunulur. `/api/v1/*` istekleri web container içinden `http://api:3001` adresine proxy edilir. API host portu yayınlanmaz.
+
+```bash
+docker compose stop
+docker compose start
+docker compose down
+```
+
+`stop` üç servisi durdurur ve `unless-stopped` politikası bunları kendiliğinden geri açmaz. `start` aynı grubu yeniden başlatır. `down` container'ları kaldırır; `postgres_data` ve `storage_data` volume'ları durur. Veritabanı ve yüklenen dosyalar `docker compose down -v` çalıştırılmadıkça silinmez.
+
+API container açılışta `prisma migrate deploy` çalıştırır. `DATABASE_URL` container içinde `@postgres:5432` olur. Host üzerindeki `DATABASE_URL` ve `POSTGRES_PORT` yalnızca makineden veritabanına bağlanmak içindir. JWT secret'ları `.env` dosyasından gelir; imaja yazılmaz.
+
+## Host üzerinde geliştirme
+
+API ve web'i makinede çalıştırmak için PostgreSQL yine Compose içindeki `postgres` servisidir:
 
 ```bash
 cp .env.example .env
 npm install
-docker compose up -d
+docker compose up -d postgres
 npm run db:generate
 npm run db:deploy
 npm run dev:api
 npm run dev:web
 ```
 
-API `http://localhost:3001/api/v1`, web uygulaması `http://localhost:3000` adresindedir. Sağlık kontrolü `GET /api/v1/health` yolundadır.
+Bu modda API `http://localhost:3001/api/v1`, web uygulaması `http://localhost:3000` adresindedir. Sağlık kontrolü `GET /api/v1/health` yolundadır. Tam stack ayaktayken web container 3000 portunu kullandığı için host `dev:web` aynı anda başlatılamaz.
 
 `.env` commit edilmez. Yeni bir ortamda `.env.example` kopyalanır ve değerler orada değiştirilir.
 
-Backend `DATABASE_URL` ve JWT secret'ları olmadan ayağa kalkmaz. `PORT`, `CORS_ORIGIN`, token ömürleri, cookie ve rate limit için örnek dosyada varsayılan vardır. Web uygulaması `NEXT_PUBLIC_API_URL` kullanır. Bu adres kodun içine yazılmaz.
+Backend `DATABASE_URL` ve JWT secret'ları olmadan ayağa kalkmaz. `PORT`, `CORS_ORIGIN`, token ömürleri, cookie ve rate limit için örnek dosyada varsayılan vardır. Host üzerinde çalışan web uygulaması `VITE_API_BASE_URL` kullanır. Bu adres kodun içine yazılmaz. Compose web imajı `/api/v1` ile build edilir.
 
 Makinede başka bir PostgreSQL 5432 portunu kullanıyorsa `.env` içinde `POSTGRES_PORT` ve `DATABASE_URL` portunu birlikte değiştir. Örnek değer `5432` olarak kalır.
 
@@ -422,14 +445,16 @@ Her istek sunucu loguna `method`, `path`, `statusCode` ve süre olarak düşer. 
 
 ## Docker imajları
 
+Yerel çalıştırma `docker compose up -d --build` ile yapılır. Ayrı `docker run` gerekmez.
+
 ```bash
-docker build -f apps/api/Dockerfile -t emlak-api:phase5 .
-docker build -f apps/web/Dockerfile -t emlak-web:phase2 --build-arg NEXT_PUBLIC_API_URL=http://localhost:3001/api/v1 .
+docker build -f apps/api/Dockerfile -t emlak-api:local .
+docker build -f apps/web/Dockerfile -t emlak-web:local --build-arg VITE_DATA_MODE=api --build-arg VITE_API_BASE_URL=/api/v1 .
 ```
 
-Bu aşamada web imajı yeniden build edilmedi. API imajı `emlak-api:phase5` etiketidir. npm registry fallback'i Docker dosyalarında durur. Local storage için container'a `emlak-site_storage_data` volume'u `/app/storage` olarak bağlanır.
+npm registry fallback'i Docker dosyalarında durur. Local storage volume'u `storage_data`dir ve API container'ında `/app/storage` yoluna bağlanır. Compose proje adı `emlak-site` olduğu için volume adları `emlak-site_postgres_data` ve `emlak-site_storage_data` olur.
 
-API imajının build argümanı yalnızca Prisma Client üretimi içindir ve runtime katmanına yazılmaz. Çalışan API container'ına `DATABASE_URL` ve JWT secret'ları dışarıdan verilir. Web imajında `NEXT_PUBLIC_API_URL` Next.js kuralı gereği build sırasında istemci paketine gömülür.
+API imajının build argümanı yalnızca Prisma Client üretimi içindir ve runtime katmanına yazılmaz. Çalışan API container'ına `DATABASE_URL` ve JWT secret'ları dışarıdan verilir. Web imajında `VITE_API_BASE_URL` build sırasında istemci paketine gömülür. Compose bu değeri `/api/v1` yapar. `API_PROXY_TARGET` yalnız web container runtime'ındadır.
 
 ## Kapsam
 

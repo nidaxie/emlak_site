@@ -1,5 +1,7 @@
-# Local development runs only PostgreSQL/PostGIS in Docker.
-# The API and web app run on the host. Production images live in apps/api and apps/web.
+# Local stack. Docker Desktop group name is emlak-site.
+# Browser: http://localhost:3000
+# /api/v1/* is proxied by the web container to http://api:3001.
+# `docker compose down` keeps named volumes. `docker compose down -v` deletes them.
 
 name: emlak-site
 
@@ -22,7 +24,76 @@ services:
       retries: 20
       start_period: 10s
 
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    expose:
+      - '3001'
+    environment:
+      NODE_ENV: production
+      PORT: '3001'
+      RUN_MIGRATIONS: 'true'
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-15m}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET is required}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+      COOKIE_SAMESITE: ${COOKIE_SAMESITE:-lax}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      AUTH_RATE_LIMIT: ${AUTH_RATE_LIMIT:-10}
+      AUTH_RATE_TTL_MS: ${AUTH_RATE_TTL_MS:-60000}
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
+      STORAGE_LOCAL_ROOT: /app/storage
+    volumes:
+      - storage_data:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3001/api/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 40s
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_DATA_MODE: api
+        VITE_API_BASE_URL: /api/v1
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    environment:
+      WEB_PORT: '3000'
+      API_PROXY_TARGET: http://api:3001
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "Promise.all([fetch('http://127.0.0.1:3000/'),fetch('http://127.0.0.1:3000/ilanlar'),fetch('http://127.0.0.1:3000/api/v1/health')]).then(rs=>process.exit(rs.every(r=>r.ok)?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
 volumes:
   postgres_data:
-  # Mount this volume at /app/storage when the API container uses local files.
   storage_data:

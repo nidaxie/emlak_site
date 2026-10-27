@@ -15,7 +15,7 @@ npm run lint -w web
 
 ## Ortam Değişkenleri
 
-`VITE_DATA_MODE=api` ve `VITE_API_BASE_URL=http://localhost:3001/api/v1` değerleri `.env` (veya `apps/web/.env`) üzerinden okunur.
+`VITE_DATA_MODE=api` ve `VITE_API_BASE_URL=http://localhost:3001/api/v1` değerleri `.env` (veya `apps/web/.env`) üzerinden okunur. Docker Compose web imajı build sırasında `/api/v1` kullanır; tarayıcı istekleri `http://localhost:3000/api/v1` adresine gider ve `server.mjs` bunları API container'ına proxy eder.
 
 - `VITE_DATA_MODE=api`: Tüm public okuma isteklerini doğrudan NestJS `/api/v1` backend'ine gönderir (mock fallback yapılmaz).
 - `VITE_DATA_MODE=mock`: Yalnız yerel görsel demo için `src/mocks/marketplace-data.ts` verisini kullanır.
