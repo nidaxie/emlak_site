@@ -1,6 +1,7 @@
 import { plainToInstance, Type } from 'class-transformer';
 import {
   IsBoolean,
+  IsEmail,
   IsIn,
   IsInt,
   IsNotEmpty,
@@ -76,6 +77,17 @@ class EnvironmentVariables {
   @IsString()
   @MaxLength(300)
   STORAGE_LOCAL_ROOT?: string;
+
+  @IsOptional()
+  @IsEmail()
+  @MaxLength(254)
+  ADMIN_EMAIL?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(8)
+  @MaxLength(128)
+  ADMIN_PASSWORD?: string;
 }
 
 function readBoolean(value: unknown, fallback: boolean) {
@@ -116,6 +128,8 @@ export function validateEnv(config: Record<string, unknown>) {
       AUTH_RATE_TTL_MS: config.AUTH_RATE_TTL_MS ?? 60_000,
       STORAGE_DRIVER: config.STORAGE_DRIVER ?? 'local',
       STORAGE_LOCAL_ROOT: config.STORAGE_LOCAL_ROOT || undefined,
+      ADMIN_EMAIL: optionalText(config.ADMIN_EMAIL),
+      ADMIN_PASSWORD: optionalText(config.ADMIN_PASSWORD),
     },
     { enableImplicitConversion: true },
   );
@@ -178,5 +192,16 @@ export function validateEnv(config: Record<string, unknown>) {
     AUTH_RATE_TTL_MS: validated.AUTH_RATE_TTL_MS,
     STORAGE_DRIVER: validated.STORAGE_DRIVER,
     STORAGE_LOCAL_ROOT: validated.STORAGE_LOCAL_ROOT ?? '',
+    ADMIN_EMAIL: validated.ADMIN_EMAIL ?? '',
+    ADMIN_PASSWORD: validated.ADMIN_PASSWORD ?? '',
   };
+}
+
+function optionalText(value: unknown) {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }

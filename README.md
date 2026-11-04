@@ -57,6 +57,8 @@ docker compose down
 
 API container açılışta `prisma migrate deploy` çalıştırır. `DATABASE_URL` container içinde `@postgres:5432` olur. Host üzerindeki `DATABASE_URL` ve `POSTGRES_PORT` yalnızca makineden veritabanına bağlanmak içindir. JWT secret'ları `.env` dosyasından gelir; imaja yazılmaz.
 
+Local Compose `NODE_ENV=development` kullanır. Bu ortamda `ADMIN_EMAIL` ve `ADMIN_PASSWORD` tanımlıysa ve e-posta boşsa API açılışında bir `ADMIN` hesabı oluşturur. `NODE_ENV=production` bu hesabı oluşturmaz. Aynı e-posta `USER` veya `AGENT` ise rol değiştirilmez. Public register yine yalnız `USER` üretir.
+
 ## Host üzerinde geliştirme
 
 API ve web'i makinede çalıştırmak için PostgreSQL yine Compose içindeki `postgres` servisidir:
