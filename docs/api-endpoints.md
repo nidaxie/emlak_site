@@ -85,6 +85,23 @@ Auth sütunu:
 | GET    | `/properties`                           | Opsiyonel | —       | `PublicPropertyListQuery`     | `PaginatedResponse<PropertyCard>`   | Public liste            |
 | GET    | `/properties/:id`                       | Opsiyonel | —       | —                             | `PropertyDetail`                    | Public detay            |
 
+## User Properties
+
+| Method | Path                                         | Auth   | Role   | Request                          | Response                                 | Purpose                          |
+| ------ | -------------------------------------------- | ------ | ------ | -------------------------------- | ---------------------------------------- | -------------------------------- |
+| POST   | `/user-properties`                           | Bearer | `USER` | `CreatePropertyRequest`          | `UserPropertyRecord`, 201                | Bireysel ilan oluşturur          |
+| GET    | `/user-properties/me`                        | Bearer | `USER` | `MyPropertyListQuery`            | `PaginatedResponse<UserPropertyRecord>`  | Kendi bireysel ilanları          |
+| GET    | `/user-properties/me/:id`                    | Bearer | `USER` | —                                | `UserPropertyDetail`                     | Kendi bireysel ilan detayı       |
+| PATCH  | `/user-properties/:id`                       | Bearer | `USER` | `UpdatePropertyRequest`          | `UserPropertyRecord`                     | Kendi ilanını günceller          |
+| PATCH  | `/user-properties/:id/status`                | Bearer | `USER` | `UpdateUserPropertyStatusRequest`| `UserPropertyRecord`                     | `ACTIVE` ↔ `INACTIVE`            |
+| DELETE | `/user-properties/:id`                       | Bearer | `USER` | —                                | `DeletePropertyResponse`                 | Soft delete                      |
+| POST   | `/user-properties/:id/images`                | Bearer | `USER` | multipart `file`                 | `UploadedPropertyImage`, 201             | Fotoğraf                         |
+| PATCH  | `/user-properties/:id/images/order`          | Bearer | `USER` | `PropertyImageOrderRequest`      | `PropertyImageOrderResponse`             | Sıra                             |
+| PATCH  | `/user-properties/:id/images/:imageId/cover` | Bearer | `USER` | —                                | `PropertyCoverResponse`                  | Kapak                            |
+| DELETE | `/user-properties/:id/images/:imageId`       | Bearer | `USER` | —                                | `DeletedPropertyImageResponse`           | Fotoğraf siler                   |
+
+`AGENT` ve `ADMIN` bu gruba 403 alır. Başka kullanıcının kaydı 404 döner. Public `PropertyCard` ve `PropertyDetail` `sellerType` taşır.
+
 ## Files
 
 | Method | Path         | Auth | Role | Request | Response           | Purpose                |

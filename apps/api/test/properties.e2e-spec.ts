@@ -52,7 +52,7 @@ describe('Properties (e2e)', () => {
 
   function label(name: string) {
     sequence += 1;
-    return `${name} ${sequence}`;
+    return `${name} ${Date.now()}-${sequence}`;
   }
 
   function http() {

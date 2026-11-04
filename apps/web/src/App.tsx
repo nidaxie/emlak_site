@@ -4,12 +4,12 @@ import { Route, Switch, Link, useLocation, useRoute, useSearch, Router as Wouter
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { useForm, type RegisterOptions } from 'react-hook-form';
 import { AuthProvider, useAuth } from '@/hooks/auth-context';
-import { keys, useAgent, useAgentProperties, useApplication, useApplicationDocs, useApiCities, useApiDistricts, useApiNeighborhoods, useCities, useDistricts, useFavorites, useInvalidateMarketplace, useMineProperties, useMineProperty, useMyAgentProfile, useNeighborhoods, useProperties, useProperty, useToggleFavorite, useAdminUsers, useAdminUser, useAdminAgents, useAdminAgent, useAdminApps, useAdminApplication, useAdminApplicationDocuments, useAdminProperties, useAdminProperty, useAdminAudit, useMe } from '@/hooks/use-api';
-import { adminAgentsApi, adminApplicationsApi, adminPropertiesApi, adminUsersApi, agentsApi, applicationsApi, propertiesApi, propertyImagesApi, usersApi } from '@/services/api';
+import { keys, useAgent, useAgentProperties, useApplication, useApplicationDocs, useApiCities, useApiDistricts, useApiNeighborhoods, useCities, useDistricts, useFavorites, useInvalidateMarketplace, useInvalidateUserProperties, useMineProperties, useMineProperty, useMyAgentProfile, useMyUserProperties, useMyUserProperty, useNeighborhoods, useProperties, useProperty, useToggleFavorite, useAdminUsers, useAdminUser, useAdminAgents, useAdminAgent, useAdminApps, useAdminApplication, useAdminApplicationDocuments, useAdminProperties, useAdminProperty, useAdminAudit, useMe } from '@/hooks/use-api';
+import { adminAgentsApi, adminApplicationsApi, adminPropertiesApi, adminUsersApi, agentsApi, applicationsApi, propertiesApi, propertyImagesApi, userPropertiesApi, usersApi } from '@/services/api';
 import { ApiRequestError, fileUrl } from '@/lib/api-client';
 import { EmptyState, ErrorState, labels, money, area, Pagination, PropertyCardView, SectionTitle, SkeletonGrid, inputClass } from '@/components/market-ui';
 import { ArrowLeft, ArrowRight, BadgeCheck, Building2, ChevronDown, ChevronLeft, ChevronRight, CircleUserRound, Heart, Home, MapPin, Menu, Phone, Search, ShieldCheck, SlidersHorizontal, UserRound, X } from 'lucide-react';
-import type { AgentDocumentType, CreateAgentApplicationRequest, CreatePropertyRequest, PropertyCard, PropertyImage, PropertyStatus, PublicPropertyListQuery, RegisterRequest, UpdateAgentProfileRequest, UpdatePropertyRequest } from '@/types/api';
+import type { AgentDocumentType, CreateAgentApplicationRequest, CreatePropertyRequest, MyPropertyListQuery, PropertyCard, PropertyImage, PropertyStatus, PublicPropertyListQuery, RegisterRequest, UpdateAgentProfileRequest, UpdatePropertyRequest, UserPropertyRecord } from '@/types/api';
 import { useToast } from '@/hooks/use-toast';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -19,26 +19,53 @@ import { YuvaLogo } from '@/components/yuva-logo';
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: (failureCount, error) => !(error instanceof TypeError) && failureCount < 1, staleTime: 25000, refetchOnWindowFocus: false } } });
 const showError = (e: unknown) => e instanceof TypeError ? 'API sunucusuna bağlanılamadı. Sunucu adresini, durumunu ve CORS ayarlarını kontrol edin.' : e instanceof ApiRequestError ? e.message : 'Bir sorun oluştu. Lütfen tekrar deneyin.';
+function favoritesNavHref(user: { role: string } | null | undefined, isLoading: boolean, isAuthenticated: boolean) {
+  if (isLoading) return '/favoriler';
+  if (!isAuthenticated || !user) return `/giris?returnTo=${encodeURIComponent('/hesabim/favoriler')}`;
+  return user.role === 'USER' ? '/hesabim/favoriler' : '/favoriler';
+}
 function Header() {
   const { user, isAuthenticated, isLoading, logout } = useAuth(); const [open, setOpen] = useState(false);
   const platformHref = user?.role === 'ADMIN' ? '/admin' : user?.role === 'AGENT' ? '/panel' : '/emlakci-basvuru';
   const platformLabel = user?.role === 'ADMIN' ? 'Yönetim' : user?.role === 'AGENT' ? 'Panelim' : 'Emlakçı Ol';
-  const navItems: [string, string][] = [['/', 'Ana Sayfa'], ['/ilanlar', 'İlanlar'], ['/favoriler', 'Favoriler'], ['/nasil-ilan-verilir', 'Nasıl İlan Verilir?'], [platformHref, platformLabel]];
+  const ilanVerHref = isLoading
+    ? '/ilan-ver'
+    : !isAuthenticated || !user
+      ? `/giris?returnTo=${encodeURIComponent('/ilan-ver')}`
+      : user.role === 'AGENT'
+        ? '/panel/ilanlar/yeni'
+        : user.role === 'ADMIN'
+          ? null
+          : '/ilan-ver';
+  const platformItem: [string, string] | null = !isLoading && isAuthenticated && user?.role === 'USER' ? null : [platformHref, platformLabel];
+  const navItems: [string, string][] = [['/', 'Ana Sayfa'], ['/ilanlar', 'İlanlar'], [favoritesNavHref(user, isLoading, isAuthenticated), 'Favoriler'], ...(ilanVerHref ? [[ilanVerHref, 'İlan Ver'] as [string, string]] : []), ...(platformItem ? [platformItem] : [])];
   const logoutNow = async () => { await logout(); setOpen(false); };
   return <header className="sticky top-0 z-40 border-b border-border/80 bg-background/95 backdrop-blur"><div className="mx-auto flex h-[78px] max-w-[1440px] items-center justify-between px-5 lg:px-10">
-    <YuvaLogo/><nav className="hidden items-center gap-8 text-sm font-semibold lg:flex" aria-label="Ana menü">{navItems.map(([href, label]) => <Link key={href + label} href={href} className="nav-link">{label}</Link>)}</nav>
+    <YuvaLogo/><nav className="hidden items-center gap-8 text-sm font-semibold lg:flex" aria-label="Ana menü">{navItems.map(([href, label]) => <Link key={href + label} href={href} data-testid={label === 'İlan Ver' ? 'link-ilan-ver' : undefined} className={label === 'İlan Ver' ? 'rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground' : 'nav-link'}>{label}</Link>)}</nav>
     <div className="hidden items-center gap-3 lg:flex">{isLoading ? <div className="skeleton h-10 w-36 rounded-full" aria-hidden="true"/> : isAuthenticated && user ? <div className="relative"><button className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-2 text-sm font-semibold" onClick={() => setOpen(!open)} data-testid="button-account-menu"><CircleUserRound size={17}/>{user.firstName || user.email || 'Hesabım'}<ChevronDown size={14}/></button>{open && <div className="absolute right-0 top-12 z-50 w-60 rounded-xl border border-border bg-card p-2 shadow-xl">
       <div className="mb-1 border-b border-border px-3 py-2"><p className="truncate text-xs font-semibold text-foreground">{user.email}</p><p className="mt-0.5 text-[11px] text-muted-foreground">{labels[user.role]}</p></div>
-      {user.role === 'USER' && <><MenuLink href="/profil">Profilim</MenuLink><MenuLink href="/favoriler">Favorilerim</MenuLink><MenuLink href="/emlakci-basvuru">Emlakçı Başvurum</MenuLink></>}
+      {user.role === 'USER' && <><MenuLink href="/hesabim">Hesabım</MenuLink><MenuLink href="/hesabim/ilanlar">İlanlarım</MenuLink><MenuLink href="/hesabim/favoriler">Favorilerim</MenuLink><MenuLink href="/hesabim/bilgiler">Hesap Bilgilerim</MenuLink></>}
       {user.role === 'AGENT' && <><MenuLink href="/panel">Genel Bakış</MenuLink><MenuLink href="/panel/ilanlar">İlan Yönetimi</MenuLink><MenuLink href="/panel/emlakci-profili">Emlakçı Profilim</MenuLink><MenuLink href="/favoriler">Favorilerim</MenuLink></>}
       {user.role === 'ADMIN' && <><MenuLink href="/admin">Yönetim</MenuLink><MenuLink href="/admin/kullanicilar">Kullanıcılar</MenuLink><MenuLink href="/admin/basvurular">Başvurular</MenuLink></>}
-      <button onClick={logoutNow} className="w-full rounded-lg px-3 py-2 text-left text-sm text-destructive hover:bg-muted" data-testid="button-logout">Çıkış yap</button></div>}</div> : <><Link href="/giris" className="rounded-xl px-4 py-2.5 text-sm font-semibold">Giriş yap</Link><Link href="/kayit" className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground">Ücretsiz kayıt</Link></>}</div>
+      <button onClick={logoutNow} className="mt-1 w-full rounded-lg border-t border-border px-3 py-2 text-left text-sm text-destructive hover:bg-muted" data-testid="button-logout">Çıkış Yap</button></div>}</div> : <><Link href="/giris" className="rounded-xl px-4 py-2.5 text-sm font-semibold">Giriş yap</Link><Link href="/kayit" className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground">Ücretsiz kayıt</Link></>}</div>
     <button className="grid h-10 w-10 place-items-center rounded-xl border border-border lg:hidden" onClick={() => setOpen(!open)} aria-label="Menüyü aç" data-testid="button-mobile-menu">{open ? <X/> : <Menu/>}</button></div>
-    {open && <div className="border-t border-border bg-background px-5 py-4 lg:hidden"><nav className="grid gap-1">{navItems.map(([href, label]) => <Link key={href + label} href={href} onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-sm font-semibold hover:bg-muted">{label}</Link>)}{isLoading ? null : isAuthenticated && user ? <><Link href="/profil" onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-sm font-semibold hover:bg-muted">Profilim</Link><button onClick={logoutNow} className="px-3 py-3 text-left text-sm text-destructive">Çıkış yap</button></> : <div className="mt-2 grid grid-cols-2 gap-2 border-t border-border pt-3"><Link href="/giris" onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-center text-sm font-semibold">Giriş yap</Link><Link href="/kayit" onClick={() => setOpen(false)} className="rounded-lg bg-primary px-3 py-3 text-center text-sm font-semibold text-primary-foreground">Ücretsiz kayıt</Link></div>}</nav></div>}
+    {open && <div className="border-t border-border bg-background px-5 py-4 lg:hidden"><nav className="grid gap-1">{navItems.map(([href, label]) => <Link key={href + label} href={href} onClick={() => setOpen(false)} data-testid={label === 'İlan Ver' ? 'link-ilan-ver-mobile' : undefined} className={label === 'İlan Ver' ? 'rounded-lg bg-primary px-3 py-3 text-sm font-semibold text-primary-foreground' : 'rounded-lg px-3 py-3 text-sm font-semibold hover:bg-muted'}>{label}</Link>)}{isLoading ? null : isAuthenticated && user ? <>{user.role === 'USER' ? <><Link href="/hesabim" onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-sm font-semibold hover:bg-muted">Hesabım</Link><Link href="/hesabim/ilanlar" onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-sm font-semibold hover:bg-muted">İlanlarım</Link><Link href="/hesabim/favoriler" onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-sm font-semibold hover:bg-muted">Favorilerim</Link><Link href="/hesabim/bilgiler" onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-sm font-semibold hover:bg-muted">Hesap Bilgilerim</Link></> : <Link href="/profil" onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-sm font-semibold hover:bg-muted">Profilim</Link>}<button onClick={logoutNow} className="px-3 py-3 text-left text-sm text-destructive">Çıkış Yap</button></> : <div className="mt-2 grid grid-cols-2 gap-2 border-t border-border pt-3"><Link href="/giris" onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-center text-sm font-semibold">Giriş yap</Link><Link href="/kayit" onClick={() => setOpen(false)} className="rounded-lg bg-primary px-3 py-3 text-center text-sm font-semibold text-primary-foreground">Ücretsiz kayıt</Link></div>}</nav></div>}
   </header>;
 }
 function MenuLink({ href, children }: { href: string; children: ReactNode }) { return <Link href={href} className="block rounded-lg px-3 py-2 text-sm hover:bg-muted">{children}</Link>; }
-function Footer() { return <footer className="mt-20 bg-[#213c38] text-white"><div className="mx-auto max-w-[1280px] px-5 py-10 lg:px-10"><div className="flex flex-col gap-8 sm:flex-row sm:items-center sm:justify-between"><div><YuvaLogo tone="cream"/><p className="mt-2 max-w-sm text-sm leading-6 text-white/65">Yeni bir eve giden yolu biraz daha anlaşılır kılmak için buradayız.</p></div><nav className="flex flex-wrap gap-x-6 gap-y-3 text-sm font-medium text-white/80" aria-label="Alt menü"><Link href="/ilanlar" className="hover:text-white">İlanlar</Link><Link href="/favoriler" className="hover:text-white">Favoriler</Link><Link href="/nasil-ilan-verilir" className="hover:text-white">Nasıl İlan Verilir?</Link><Link href="/emlakci-basvuru" className="hover:text-white">Emlakçı Ol</Link><Link href="/giris" className="hover:text-white">Giriş yap</Link></nav></div><div className="mt-8 border-t border-white/10 pt-4 text-center text-xs text-white/45 sm:text-left">© Yuva · Türkiye</div></div></footer>; }
+function Footer() {
+  const { user, isAuthenticated, isLoading } = useAuth();
+  const links: [string, string][] = isLoading
+    ? [['/ilanlar', 'İlanlar'], ['/nasil-ilan-verilir', 'Nasıl İlan Verilir?']]
+    : !isLoading && isAuthenticated && user?.role === 'USER'
+    ? [['/ilanlar', 'İlanlar'], ['/ilan-ver', 'İlan Ver'], ['/hesabim/ilanlar', 'İlanlarım'], ['/hesabim/favoriler', 'Favorilerim'], ['/hesabim', 'Hesabım']]
+    : !isLoading && isAuthenticated && user?.role === 'AGENT'
+      ? [['/ilanlar', 'İlanlar'], ['/panel', 'Panelim'], ['/favoriler', 'Favoriler'], ['/nasil-ilan-verilir', 'Nasıl İlan Verilir?']]
+      : !isLoading && isAuthenticated && user?.role === 'ADMIN'
+        ? [['/ilanlar', 'İlanlar'], ['/admin', 'Yönetim'], ['/nasil-ilan-verilir', 'Nasıl İlan Verilir?']]
+        : [['/ilanlar', 'İlanlar'], [favoritesNavHref(user, isLoading, isAuthenticated), 'Favoriler'], ['/nasil-ilan-verilir', 'Nasıl İlan Verilir?'], ['/emlakci-basvuru', 'Emlakçı Ol'], ['/giris', 'Giriş yap']];
+  return <footer className="mt-20 bg-[#213c38] text-white"><div className="mx-auto max-w-[1280px] px-5 py-10 lg:px-10"><div className="flex flex-col gap-8 sm:flex-row sm:items-center sm:justify-between"><div><YuvaLogo tone="cream"/><p className="mt-2 max-w-sm text-sm leading-6 text-white/65">Yeni bir eve giden yolu biraz daha anlaşılır kılmak için buradayız.</p></div><nav className="flex flex-wrap gap-x-6 gap-y-3 text-sm font-medium text-white/80" aria-label="Alt menü">{links.map(([href, label]) => <Link key={href + label} href={href} className="hover:text-white">{label}</Link>)}</nav></div><div className="mt-8 border-t border-white/10 pt-4 text-center text-xs text-white/45 sm:text-left">© Yuva · Türkiye</div></div></footer>;
+}
 function PublicLayout({ children }: { children: ReactNode }) { return <><Header/><main className="min-h-[65vh]">{children}</main><Footer/></>; }
 function Guard({ roles, children }: { roles?: string[]; children: ReactNode }) {
   const { user, isAuthenticated, isLoading } = useAuth();
@@ -116,8 +143,8 @@ function HomePage() {
   const listings = q.data?.items ?? []; const spotlight = listings[0]; const newest = listings.slice(0, 6);
   return <PublicLayout><section className="home-hero relative"><div className="relative mx-auto max-w-[1440px] px-5 pb-10 pt-10 md:pb-12 md:pt-14 lg:px-10 lg:pb-14 lg:pt-16"><div className="grid items-center gap-8 lg:grid-cols-[minmax(0,.92fr)_minmax(440px,1.08fr)] lg:gap-14"><div className="max-w-2xl"><p className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[.18em] text-[#45675b]"><ShieldCheck size={15}/> YUVA · Yeni yaşam alanları</p><h1 className="mt-5 font-display text-[2.65rem] font-extrabold leading-[1.05] tracking-[-.045em] text-[#203b34] sm:text-5xl xl:text-[3.65rem]">Size ait bir yer,<br/><span className="text-[#315f50]">yeni bir başlangıç.</span></h1><p className="mt-5 max-w-lg text-base leading-7 text-[#56665e] md:text-lg">Satılık ve kiralık evleri keşfedin, size en uygun yaşam alanını bulun.</p><div className="mt-7 flex flex-wrap gap-x-6 gap-y-3 text-sm font-semibold text-[#365a50]"><span className="inline-flex items-center gap-2"><MapPin size={16}/> Şehir ve ilçe seçimi</span><span className="inline-flex items-center gap-2"><Building2 size={16}/> Farklı emlak türleri</span></div></div><HeroSpotlight property={spotlight}/></div><HeroSearch/></div></section>
     <section className="home-section mx-auto max-w-[1440px] px-5 py-14 md:py-16 lg:px-10 lg:py-20"><div className="mb-8 flex flex-wrap items-end justify-between gap-4"><SectionTitle eyebrow="YUVA · güncel portföy" title="Yeni İlanlar" description={DATA_MODE==='mock'?'Örnek portföydeki yeni ilanları keşfedin.':'Piyasaya yeni eklenen yaşam alanlarına göz atın.'}/><Link href="/ilanlar?sort=newest" className="mb-8 inline-flex items-center gap-2 text-sm font-bold text-primary">Tüm ilanlar <ArrowRight size={16}/></Link></div>{q.isLoading?<SkeletonGrid/>:q.error?<ErrorState retry={()=>q.refetch()} message={showError(q.error)}/>:newest.length?<div className="home-property-grid grid items-stretch gap-5 sm:grid-cols-2 xl:grid-cols-3">{newest.map(p=><PropertyCardView key={p.id} property={p}/>)}</div>:<EmptyState title="Henüz ilan yok" text="Yeni ilanlar eklendiğinde burada görebilirsiniz." href="/ilanlar" action="İlanları keşfet"/>}</section>
-    <section className="home-cities border-y border-[#e4e0d5] bg-[#f1eee5]"><div className="mx-auto max-w-[1440px] px-5 py-14 lg:px-10 lg:py-16"><SectionTitle eyebrow="Lokasyona göre keşfet" title="Şehirlere Göre Keşfet" description="Şehir seçin, o bölgedeki gayrimenkul ilanlarını inceleyin."/><div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:gap-4 xl:grid-cols-6">{cities.isLoading?[1,2,3,4,5,6].map(i=><span className="skeleton h-36 rounded-xl" key={i}/>):cities.error?<ErrorState retry={()=>cities.refetch()} message={showError(cities.error)}/>:cities.data?.map(city=><HomeCityCard key={city.id} city={city} property={listings.find(item=>item.city===city.name)}/>)}</div></div></section>
-    <section className="mx-auto max-w-[1440px] px-5 py-14 md:py-16 lg:px-10 lg:py-20"><div className="home-agent-cta relative overflow-hidden rounded-2xl bg-[#173d32] px-6 py-9 text-white md:px-12 md:py-12"><div className="cta-circle"/><div className="relative flex flex-col gap-6 md:flex-row md:items-center md:justify-between"><div className="max-w-2xl"><p className="mb-3 text-xs font-bold uppercase tracking-[.18em] text-[#c8dbcf]">Emlakçılar ve ev sahipleri için</p><h2 className="font-display text-3xl font-extrabold leading-tight md:text-4xl">Gayrimenkulünüzü doğru kişilerle buluşturun.</h2><p className="mt-3 max-w-xl text-sm leading-6 text-white/75 md:text-base">Emlakçı başvurusu ve ilan verme adımlarını mevcut akışlardan inceleyin. Bireysel ilan oluşturma henüz kullanıma açık değildir.</p></div><div className="relative flex flex-col gap-3 sm:flex-row"><Link href="/nasil-ilan-verilir" className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border border-white/30 px-5 font-semibold text-white transition-colors hover:bg-white/10">İlan verme yolları <ArrowRight size={17}/></Link><Link href="/nasil-ilan-verilir?audience=advisor" className="inline-flex h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#f0cf9c] px-5 font-bold text-[#253b35] transition-colors hover:bg-[#f6ddb4]">Emlakçı süreci <ArrowRight size={17}/></Link></div></div></div></section>
+    <section className="home-cities border-y border-[#e4e0d5] bg-[#f1eee5]"><div className="mx-auto max-w-[1440px] px-5 py-14 lg:px-10 lg:py-16"><SectionTitle eyebrow="Lokasyona göre keşfet" title="Şehirlere Göre Keşfet" description="Şehir seçin, o bölgedeki gayrimenkul ilanlarını inceleyin."/><div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:gap-4">{cities.isLoading?[1,2,3].map(i=><span className="skeleton h-36 rounded-xl" key={i}/>):cities.error?<ErrorState retry={()=>cities.refetch()} message={showError(cities.error)}/>:['Konya','İstanbul','Ankara'].flatMap(name=>{const city=cities.data?.find(item=>item.name===name);return city?[city]:[];}).map(city=><HomeCityCard key={city.id} city={city} property={listings.find(item=>item.city===city.name)}/>)}</div></div></section>
+    <section className="mx-auto max-w-[1440px] px-5 py-14 md:py-16 lg:px-10 lg:py-20"><div className="home-agent-cta relative overflow-hidden rounded-2xl bg-[#173d32] px-6 py-9 text-white md:px-12 md:py-12"><div className="cta-circle"/><div className="relative flex flex-col gap-6 md:flex-row md:items-center md:justify-between"><div className="max-w-2xl"><p className="mb-3 text-xs font-bold uppercase tracking-[.18em] text-[#c8dbcf]">Emlakçılar ve ev sahipleri için</p><h2 className="font-display text-3xl font-extrabold leading-tight md:text-4xl">Gayrimenkulünüzü doğru kişilerle buluşturun.</h2><p className="mt-3 max-w-xl text-sm leading-6 text-white/75 md:text-base">Evinizi satmak veya kiralamak için ilan verin. Emlakçılar başvuru sonrası panelden ilan yönetmeye devam eder.</p></div><div className="relative flex flex-col gap-3 sm:flex-row"><Link href="/ilan-ver" className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border border-white/30 px-5 font-semibold text-white transition-colors hover:bg-white/10" data-testid="link-home-ilan-ver">İlan Ver <ArrowRight size={17}/></Link><Link href="/nasil-ilan-verilir?audience=advisor" className="inline-flex h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#f0cf9c] px-5 font-bold text-[#253b35] transition-colors hover:bg-[#f6ddb4]">Emlakçı süreci <ArrowRight size={17}/></Link></div></div></div></section>
   </PublicLayout>;
 }
 
@@ -293,13 +320,13 @@ function PropertyDetailPage() {
   useEffect(()=>setImageError(null),[q.data?.images[imageIndex]?.url,q.data?.coverImageUrl]);
   if(!match)return null;
   if(q.isLoading)return <PublicLayout><div className="mx-auto max-w-6xl p-8"><div className="skeleton h-[420px] rounded-3xl"/><div className="skeleton mt-8 h-32"/></div></PublicLayout>;
-  if(q.error){const notFound=(q.error instanceof ApiRequestError&&q.error.status===404)||(DATA_MODE==='mock'&&q.error instanceof Error&&q.error.message==='Demo ilanı bulunamadı.');return <PublicLayout><div className="mx-auto max-w-5xl px-5 py-16">{notFound?<EmptyState title="İlan bulunamadı" text="Bu ilan mevcut değil veya yayından kaldırılmış olabilir." href="/ilanlar" action="İlanlara dön"/>:<ErrorState message={showError(q.error)}/>}</div></PublicLayout>;}
+  if(q.error){const notFound=(q.error instanceof ApiRequestError&&(q.error.status===404||q.error.status===400))||(DATA_MODE==='mock'&&q.error instanceof Error&&q.error.message==='Demo ilanı bulunamadı.');return <PublicLayout><div className="mx-auto max-w-5xl px-5 py-16">{notFound?<EmptyState title="İlan bulunamadı" text="Bu ilan mevcut değil veya yayından kaldırılmış olabilir." href="/ilanlar" action="İlanlara dön"/>:<ErrorState message={showError(q.error)}/>}</div></PublicLayout>;}
   const p=q.data; if(!p)return null; const images=p.images.slice().sort((a,b)=>a.sortOrder-b.sortOrder); const src=fileUrl(images[imageIndex]?.url || p.coverImageUrl); const imageAvailable=!!src&&imageError!==src;
   const facts=[['Oda',`${p.rooms}+${p.livingRooms}`],['Brüt alan',`${area(p.grossAreaM2)} m²`],['Net alan',p.netAreaM2?`${area(p.netAreaM2)} m²`:'—'],['Bina yaşı',p.buildingAge??'—'],['Bulunduğu kat',p.floor??'—'],['Toplam kat',p.totalFloors??'—'],['Isıtma',p.heatingType?labels[p.heatingType]:'—'],['Eşyalı',p.isFurnished?'Evet':'Hayır'],['Balkon',p.hasBalcony?'Var':'Yok'],['Asansör',p.hasElevator?'Var':'Yok'],['Otopark',p.hasParking?'Var':'Yok'],['Site içinde',p.inSite?'Evet':'Hayır']];
   return <PublicLayout><div className="mx-auto max-w-[1280px] px-5 py-8"><Link href="/ilanlar" className="mb-5 inline-flex items-center gap-2 text-sm font-semibold text-muted-foreground"><ArrowLeft size={16}/> İlanlara dön</Link><div className="grid gap-8 lg:grid-cols-[1.45fr_.8fr]"><section><div className="detail-image relative overflow-hidden rounded-[1.5rem] bg-muted">{imageAvailable?<img src={src!} alt={p.title} role="button" tabIndex={0} onClick={()=>setLightbox(true)} onError={()=>setImageError(src)} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();setLightbox(true);}}} className="h-full w-full cursor-zoom-in object-cover"/>:<div className="property-image-fallback grid h-full min-h-[340px] place-items-center" role="img" aria-label="İlan görseli kullanılamıyor"><Home size={58} className="text-emerald-900/30"/></div>}{images.length>1&&<div className="absolute inset-x-4 top-1/2 flex -translate-y-1/2 justify-between"><button className="gallery-arrow" onClick={()=>setImageIndex((imageIndex-1+images.length)%images.length)} aria-label="Önceki fotoğraf"><ChevronLeft/></button><button className="gallery-arrow" onClick={()=>setImageIndex((imageIndex+1)%images.length)} aria-label="Sonraki fotoğraf"><ChevronRight/></button></div>}<span className="absolute bottom-4 right-4 rounded-full bg-black/60 px-3 py-1 text-xs text-white">{images.length?`${imageIndex+1} / ${images.length}`:'Fotoğraf bulunmuyor'}</span></div>{images.length>1&&<div className="mt-3 flex gap-2 overflow-x-auto">{images.map((im,i)=><button key={im.id} className={`h-20 w-28 shrink-0 overflow-hidden rounded-xl border-2 ${i===imageIndex?'border-primary':'border-transparent'}`} onClick={()=>setImageIndex(i)}><img src={fileUrl(im.url)||''} alt={`${p.title} ${i+1}`} onError={e=>{e.currentTarget.style.opacity='0';}} className="h-full w-full object-cover"/></button>)}</div>}
       {lightbox&&imageAvailable&&<div className="fixed inset-0 z-[70] flex items-center justify-center bg-[#14211e]/95 p-4" role="dialog" aria-modal="true" aria-label="İlan fotoğrafı görüntüleyici" onClick={()=>setLightbox(false)}><button className="absolute right-5 top-5 grid h-11 w-11 place-items-center rounded-full bg-white/10 text-white" aria-label="Görüntüleyiciyi kapat" onClick={()=>setLightbox(false)}><X/></button>{images.length>1&&<button className="gallery-arrow absolute left-4 top-1/2 -translate-y-1/2" onClick={e=>{e.stopPropagation();setImageIndex((imageIndex-1+images.length)%images.length);}} aria-label="Önceki fotoğraf"><ChevronLeft/></button>}<img src={src!} alt={p.title} className="max-h-[88dvh] max-w-[92vw] rounded-lg object-contain" onError={()=>setImageError(src)} onClick={e=>e.stopPropagation()}/>{images.length>1&&<button className="gallery-arrow absolute right-4 top-1/2 -translate-y-1/2" onClick={e=>{e.stopPropagation();setImageIndex((imageIndex+1)%images.length);}} aria-label="Sonraki fotoğraf"><ChevronRight/></button>}</div>}
       <div className="mt-10"><SectionTitle eyebrow="İlan detayları" title="Öne çıkan özellikler"/><div className="grid grid-cols-2 gap-3 sm:grid-cols-3">{facts.map(([key,val])=><div key={key} className="rounded-xl bg-card p-4"><p className="text-xs text-muted-foreground">{key}</p><p className="mt-1 font-semibold">{val}</p></div>)}</div></div><div className="mt-10"><SectionTitle title="Açıklama"/><p className="whitespace-pre-line leading-7 text-muted-foreground">{p.description}</p></div><div className="mt-10"><SectionTitle title="Konum"/><div className="surface p-5"><p className="flex items-center gap-2 font-semibold"><span className="text-primary"><Home size={17}/></span>{p.neighborhood}, {p.district}, {p.city}</p><p className="mt-2 text-sm text-muted-foreground">{p.address}</p><p className="mt-3 text-xs text-muted-foreground">Konum koordinatları: {p.latitude}, {p.longitude}</p></div></div></section>
-      <aside><div className="surface sticky top-28 p-6"><div className="flex items-center justify-between"><span className="rounded-full bg-secondary px-3 py-1.5 text-xs font-bold text-primary">{labels[p.listingType]} · {labels[p.propertyType]}</span><button type="button" disabled={fav.isPending} onClick={()=>isAuthenticated?fav.mutate({id:p.id,favorite:p.isFavorite}):go(`/giris?returnTo=${encodeURIComponent(currentTarget)}`)} aria-label={p.isFavorite?'Favorilerden çıkar':'Favorilere ekle'} aria-pressed={p.isFavorite} data-testid={`button-detail-favorite-${p.id}`} className={`grid h-10 w-10 place-items-center rounded-full bg-muted ${p.isFavorite?'text-rose-600':''}`}><Heart fill={p.isFavorite?'currentColor':'none'}/></button></div><p className="mt-5 font-display text-4xl font-extrabold text-primary">{money(p.price)}</p><h1 className="mt-3 font-display text-2xl font-bold leading-snug">{p.title}</h1><p className="mt-3 flex items-center gap-1.5 text-sm text-muted-foreground">{p.neighborhood}, {p.district}, {p.city}</p><div className="my-5 grid grid-cols-3 border-y border-border py-4 text-center"><span><b className="block">{p.rooms}+{p.livingRooms}</b><small className="text-xs text-muted-foreground">Oda</small></span><span><b className="block">{area(p.grossAreaM2)} m²</b><small className="text-xs text-muted-foreground">Brüt</small></span><span><b className="block">{p.buildingAge??'—'}</b><small className="text-xs text-muted-foreground">Bina yaşı</small></span></div><div className="flex items-center gap-3 rounded-xl bg-muted/70 p-4"><div className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-xl bg-white text-primary">{p.agent.logoUrl&&fileUrl(p.agent.logoUrl)?<img src={fileUrl(p.agent.logoUrl)!} alt="" className="h-full w-full object-cover"/>:<Building2 size={22}/>}</div><div className="min-w-0 flex-1"><Link href={`/emlakci/${p.agent.slug}`} className="block truncate font-bold hover:text-primary">{p.agent.companyName}</Link><Link href={`/emlakci/${p.agent.slug}`} className="text-xs text-primary">Emlakçı profili</Link></div></div><a href={`tel:${p.agent.phone}`} className="mt-4 flex h-12 items-center justify-center gap-2 rounded-xl bg-primary font-semibold text-white"><Phone size={17}/> {p.agent.phone}</a><p className="mt-3 text-center text-[11px] text-muted-foreground">İlan hakkında bilgi almak için emlakçıyla iletişime geçin.</p></div></aside></div></div></PublicLayout>;
+      <aside><div className="surface sticky top-28 p-6"><div className="flex items-center justify-between"><span className="rounded-full bg-secondary px-3 py-1.5 text-xs font-bold text-primary">{labels[p.listingType]} · {labels[p.propertyType]}</span><button type="button" disabled={fav.isPending} onClick={()=>isAuthenticated?fav.mutate({id:p.id,favorite:p.isFavorite}):go(`/giris?returnTo=${encodeURIComponent(currentTarget)}`)} aria-label={p.isFavorite?'Favorilerden çıkar':'Favorilere ekle'} aria-pressed={p.isFavorite} data-testid={`button-detail-favorite-${p.id}`} className={`grid h-10 w-10 place-items-center rounded-full bg-muted ${p.isFavorite?'text-rose-600':''}`}><Heart fill={p.isFavorite?'currentColor':'none'}/></button></div><p className="mt-5 font-display text-4xl font-extrabold text-primary">{money(p.price)}</p><h1 className="mt-3 font-display text-2xl font-bold leading-snug">{p.title}</h1><p className="mt-3 flex items-center gap-1.5 text-sm text-muted-foreground">{p.neighborhood}, {p.district}, {p.city}</p><div className="my-5 grid grid-cols-3 border-y border-border py-4 text-center"><span><b className="block">{p.rooms}+{p.livingRooms}</b><small className="text-xs text-muted-foreground">Oda</small></span><span><b className="block">{area(p.grossAreaM2)} m²</b><small className="text-xs text-muted-foreground">Brüt</small></span><span><b className="block">{p.buildingAge??'—'}</b><small className="text-xs text-muted-foreground">Bina yaşı</small></span></div><div className="flex items-center gap-3 rounded-xl bg-muted/70 p-4"><div className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-xl bg-white text-primary">{p.agent?.logoUrl&&fileUrl(p.agent.logoUrl)?<img src={fileUrl(p.agent.logoUrl)!} alt="" className="h-full w-full object-cover"/>:<Building2 size={22}/>}</div><div className="min-w-0 flex-1">{p.agent?<><Link href={`/emlakci/${p.agent.slug}`} className="block truncate font-bold hover:text-primary">{p.agent.companyName}</Link><Link href={`/emlakci/${p.agent.slug}`} className="text-xs text-primary">Emlakçı profili</Link></>:<><p className="truncate font-bold">{p.sellerDisplayName}</p><p className="text-xs text-muted-foreground">Bireysel ilan</p></>}</div></div>{p.agent?<a href={`tel:${p.agent.phone}`} className="mt-4 flex h-12 items-center justify-center gap-2 rounded-xl bg-primary font-semibold text-white"><Phone size={17}/> {p.agent.phone}</a>:<p className="mt-4 rounded-xl bg-muted px-4 py-3 text-center text-sm text-muted-foreground">İletişim bilgisi bu ilanda yayımlanmıyor.</p>}<p className="mt-3 text-center text-[11px] text-muted-foreground">{p.agent?'İlan hakkında bilgi almak için emlakçıyla iletişime geçin.':'Bireysel ilan sahibi.'}</p></div></aside></div></div></PublicLayout>;
 }
 
 function AgentPage() {
@@ -333,17 +360,18 @@ function AuthPage({mode}:{mode:'login'|'register'}) {
   </div></div></div></PublicLayout>;
 }
 
-function FavoritesPage() {
+function FavoritesContent() {
   const [page,setPage]=useState(1); const q=useFavorites(page); const fav=useToggleFavorite();
-  return <Guard><PublicLayout><div className="mx-auto max-w-[1440px] px-5 py-12 lg:px-10"><SectionTitle eyebrow="Sizin seçtikleriniz" title="Favorilerim" description="Beğendiğiniz ilanlara daha sonra buradan ulaşın."/>
-    {DATA_MODE==='mock'?<EmptyState title="Bu özellik gerçek API bağlantısı gerektirir" text="Favorilerinizi görüntülemek ve yönetmek için gerçek API modunda giriş yapın." href="/ilanlar" action="İlanları keşfet"/>:q.isLoading?<SkeletonGrid/>:q.error?<ErrorState retry={()=>q.refetch()} message={showError(q.error)}/>:q.data?.items.length?<><div className="home-property-grid grid items-stretch gap-5 sm:grid-cols-2 xl:grid-cols-3">{q.data.items.map(p=><PropertyCardView key={p.id} property={p} onFavorite={(id,is)=>fav.mutate({id,favorite:is})} favoriteBusy={fav.isPending}/>)}</div><Pagination page={q.data.page} limit={q.data.limit} total={q.data.total} onChange={setPage}/></>:<EmptyState title="Henüz favori ilanınız yok" text="İlan kartlarındaki kalp simgesine dokunarak beğendiklerinizi burada saklayabilirsiniz." href="/ilanlar" action="İlanları keşfet"/>}</div></PublicLayout></Guard>;
+  return <><SectionTitle eyebrow="Sizin seçtikleriniz" title="Favorilerim" description="Beğendiğiniz ilanlara daha sonra buradan ulaşın."/>
+    {DATA_MODE==='mock'?<EmptyState title="Bu özellik gerçek API bağlantısı gerektirir" text="Favorilerinizi görüntülemek ve yönetmek için gerçek API modunda giriş yapın." href="/ilanlar" action="İlanları Keşfet"/>:q.isLoading?<SkeletonGrid/>:q.error?<ErrorState retry={()=>q.refetch()} message="Favorileriniz yüklenemedi."/>:q.data?.items.length?<><div className="home-property-grid grid items-stretch gap-5 sm:grid-cols-2 xl:grid-cols-3">{q.data.items.map(p=><PropertyCardView key={p.id} property={p} onFavorite={(id,is)=>fav.mutate({id,favorite:is})} favoriteBusy={fav.isPending}/>)}</div><Pagination page={q.data.page} limit={q.data.limit} total={q.data.total} onChange={setPage}/></>:<EmptyState title="Henüz favori ilanınız yok." text="Beğendiğiniz ilanları kalp simgesine basarak burada saklayabilirsiniz." href="/ilanlar" action="İlanları Keşfet"/>}</>;
 }
-function ProfilePage() {
+function ProfileContent() {
   const me=useMe(),qc=useQueryClient(); const {syncUser}=useAuth(); const {toast}=useToast(); const [message,setMessage]=useState(''); const form=useForm<{firstName:string;lastName:string;phone:string}>({defaultValues:{firstName:'',lastName:'',phone:''}});
-  useEffect(()=>{if(me.data)form.reset({firstName:me.data.firstName||'',lastName:me.data.lastName||'',phone:me.data.phone||''});},[me.data,form]);
-  const save=useMutation({mutationFn:usersApi.updateMe,onSuccess:data=>{qc.setQueryData(['me'],data);syncUser(data);setMessage('Profil bilgileriniz güncellendi.');toast({title:'Profil bilgileriniz güncellendi.'});}});
-  return <Guard><PublicLayout><div className="mx-auto max-w-4xl px-5 py-12"><SectionTitle eyebrow="Hesap ayarları" title="Profilim" description="Hesap ve iletişim bilgilerinizi yönetin."/>
-    {DATA_MODE==='mock'?<EmptyState title="Bu özellik gerçek API bağlantısı gerektirir" text="Profil bilgilerinizi görüntülemek ve düzenlemek için gerçek API modunda giriş yapın." href="/ilanlar" action="İlanları keşfet"/>:me.isLoading?<div className="surface p-8"><div className="skeleton h-40"/></div>:me.error?<ErrorState retry={()=>me.refetch()} message={showError(me.error)}/>:<div className="surface p-7"><div className="mb-6 grid gap-4 rounded-xl bg-muted p-4 sm:grid-cols-2"><label className="grid gap-1.5 text-xs font-semibold text-muted-foreground">E-posta · düzenlenemez<input className={inputClass+' cursor-not-allowed opacity-70'} value={me.data?.email||''} readOnly disabled aria-readonly="true" data-testid="input-profile-email"/></label><label className="grid gap-1.5 text-xs font-semibold text-muted-foreground">Hesap türü · düzenlenemez<input className={inputClass+' cursor-not-allowed opacity-70'} value={labels[me.data?.role||'USER']||me.data?.role||''} readOnly disabled aria-readonly="true" data-testid="input-profile-role"/></label></div><form className="grid gap-4 sm:grid-cols-2" onSubmit={form.handleSubmit(v=>{setMessage('');save.mutate({firstName:v.firstName.trim(),lastName:v.lastName.trim(),phone:v.phone.trim()});})}><label className="grid gap-1.5 text-sm font-semibold">Ad<input className={inputClass} data-testid="input-profile-firstName" {...form.register('firstName',{maxLength:{value:80,message:'Ad en fazla 80 karakter olabilir.'}})}/><span className="text-xs text-destructive">{form.formState.errors.firstName?.message}</span></label><label className="grid gap-1.5 text-sm font-semibold">Soyad<input className={inputClass} data-testid="input-profile-lastName" {...form.register('lastName',{maxLength:{value:80,message:'Soyad en fazla 80 karakter olabilir.'}})}/><span className="text-xs text-destructive">{form.formState.errors.lastName?.message}</span></label><label className="grid gap-1.5 text-sm font-semibold sm:col-span-2">Telefon<input className={inputClass} type="tel" data-testid="input-profile-phone" {...form.register('phone',{maxLength:{value:32,message:'Telefon en fazla 32 karakter olabilir.'}})}/><span className="text-xs text-destructive">{form.formState.errors.phone?.message}</span></label>{message&&<p role="status" className="text-sm text-primary sm:col-span-2">{message}</p>}{save.error&&<p role="alert" className="text-sm text-destructive sm:col-span-2">{showError(save.error)}</p>}<button className="h-11 rounded-xl bg-primary px-5 font-bold text-white disabled:opacity-60 sm:col-span-2" disabled={save.isPending} data-testid="button-profile-save">{save.isPending?'Kaydediliyor…':'Değişiklikleri kaydet'}</button></form></div>}</div></PublicLayout></Guard>;
+  useEffect(()=>{if(me.data)form.reset({firstName:me.data.firstName??'',lastName:me.data.lastName??'',phone:me.data.phone??''});},[me.data,form]);
+  const save=useMutation({mutationFn:usersApi.updateMe,onSuccess:data=>{qc.setQueryData(keys.me,data);syncUser(data);setMessage('Hesap bilgileriniz güncellendi.');toast({title:'Hesap bilgileriniz güncellendi.'});}});
+  const profileError=save.error?`Bilgileriniz güncellenemedi. ${showError(save.error)}`:'';
+  return <><SectionTitle eyebrow="Hesap ayarları" title="Hesap Bilgilerim" description="Hesap ve iletişim bilgilerinizi yönetin."/>
+    {DATA_MODE==='mock'?<EmptyState title="Bu özellik gerçek API bağlantısı gerektirir" text="Profil bilgilerinizi görüntülemek ve düzenlemek için gerçek API modunda giriş yapın." href="/ilanlar" action="İlanları keşfet"/>:me.isLoading?<div className="surface p-8"><div className="skeleton h-40"/></div>:me.error?<ErrorState retry={()=>me.refetch()} message="Hesap bilgileriniz yüklenemedi."/>:<div className="surface p-7"><div className="mb-6 grid gap-4 rounded-xl bg-muted p-4 sm:grid-cols-2"><label className="grid gap-1.5 text-xs font-semibold text-muted-foreground">E-posta<input className={inputClass+' cursor-not-allowed opacity-70'} value={me.data?.email||''} readOnly disabled aria-readonly="true" data-testid="input-profile-email"/></label><label className="grid gap-1.5 text-xs font-semibold text-muted-foreground">Hesap Türü<input className={inputClass+' cursor-not-allowed opacity-70'} value={labels[me.data?.role||'USER']||me.data?.role||''} readOnly disabled aria-readonly="true" data-testid="input-profile-role"/></label></div><form className="grid gap-4 sm:grid-cols-2" onSubmit={form.handleSubmit(v=>{setMessage('');save.mutate({firstName:v.firstName.trim(),lastName:v.lastName.trim(),phone:v.phone.trim()});})}><label className="grid gap-1.5 text-sm font-semibold">Ad<input className={inputClass} data-testid="input-profile-firstName" {...form.register('firstName',{maxLength:{value:80,message:'Ad en fazla 80 karakter olabilir.'}})}/><span className="text-xs text-destructive">{form.formState.errors.firstName?.message}</span></label><label className="grid gap-1.5 text-sm font-semibold">Soyad<input className={inputClass} data-testid="input-profile-lastName" {...form.register('lastName',{maxLength:{value:80,message:'Soyad en fazla 80 karakter olabilir.'}})}/><span className="text-xs text-destructive">{form.formState.errors.lastName?.message}</span></label><label className="grid gap-1.5 text-sm font-semibold sm:col-span-2">Telefon<input className={inputClass} type="tel" data-testid="input-profile-phone" {...form.register('phone',{maxLength:{value:32,message:'Telefon en fazla 32 karakter olabilir.'}})}/><span className="text-xs text-destructive">{form.formState.errors.phone?.message}</span></label>{message&&<p role="status" className="text-sm text-primary sm:col-span-2">{message}</p>}{profileError&&<p role="alert" className="text-sm text-destructive sm:col-span-2">{profileError}</p>}<button className="h-11 rounded-xl bg-primary px-5 font-bold text-white disabled:opacity-60 sm:col-span-2" disabled={save.isPending} data-testid="button-profile-save">{save.isPending?'Kaydediliyor…':'Değişiklikleri Kaydet'}</button></form></div>}</>;
 }
 
 function ApplicationPage() {
@@ -659,17 +687,253 @@ function AgentPropertiesPage() {
     {q.data&&<Pagination page={q.data.page} limit={q.data.limit} total={q.data.total} onChange={setPage}/>}
   </PanelLayout>;
 }
-function PropertyEditor({edit=false}:{edit?:boolean}) {
+type DraftImage = { key: string; file: File; previewUrl: string; isCover: boolean };
+
+function decimalString(value: string, scale: number) {
+  const trimmed = value.trim();
+  const negative = trimmed.startsWith('-');
+  const unsigned = negative ? trimmed.slice(1) : trimmed;
+  const [whole, fraction = ''] = unsigned.split('.');
+  return `${negative ? '-' : ''}${whole}.${fraction.padEnd(scale, '0').slice(0, scale)}`;
+}
+
+function propertyPayload(v: CreatePropertyRequest, land: boolean): CreatePropertyRequest {
+  return {
+    title: v.title.trim(),
+    description: v.description.trim(),
+    listingType: v.listingType,
+    propertyType: v.propertyType,
+    price: decimalString(v.price, 2),
+    grossAreaM2: decimalString(v.grossAreaM2, 2),
+    ...(v.netAreaM2?.trim() ? { netAreaM2: decimalString(v.netAreaM2, 2) } : {}),
+    rooms: land ? 0 : Number(v.rooms),
+    livingRooms: land ? 0 : Number(v.livingRooms),
+    ...(Number.isFinite(v.buildingAge) ? { buildingAge: Number(v.buildingAge) } : {}),
+    ...(!land && Number.isFinite(v.floor) ? { floor: Number(v.floor) } : {}),
+    ...(!land && Number.isFinite(v.totalFloors) ? { totalFloors: Number(v.totalFloors) } : {}),
+    ...(!land && v.heatingType ? { heatingType: v.heatingType } : {}),
+    cityId: v.cityId,
+    districtId: v.districtId,
+    neighborhoodId: v.neighborhoodId,
+    address: v.address.trim(),
+    latitude: decimalString(v.latitude, 6),
+    longitude: decimalString(v.longitude, 6),
+    isFurnished: Boolean(v.isFurnished),
+    hasBalcony: Boolean(v.hasBalcony),
+    hasElevator: land ? false : Boolean(v.hasElevator),
+    hasParking: Boolean(v.hasParking),
+    inSite: Boolean(v.inSite),
+  };
+}
+
+function assertPropertyFields(v: CreatePropertyRequest, land: boolean) {
+  if (!v.cityId || !v.districtId || !v.neighborhoodId) {
+    throw new ApiRequestError(400, { statusCode: 400, message: 'Lütfen şehir, ilçe ve mahalle seçimlerini tamamlayın.', error: 'Bad Request', timestamp: new Date().toISOString(), path: '/api/v1/properties' });
+  }
+  const gross = Number(v.grossAreaM2);
+  const net = v.netAreaM2?.trim() ? Number(v.netAreaM2.trim()) : undefined;
+  if (net !== undefined && net > gross) {
+    throw new ApiRequestError(400, { statusCode: 400, message: 'Net area cannot exceed gross area', error: 'Bad Request', timestamp: new Date().toISOString(), path: '/api/v1/properties' });
+  }
+  if (!land && Number.isFinite(v.floor) && Number.isFinite(v.totalFloors) && (v.floor as number) > (v.totalFloors as number)) {
+    throw new ApiRequestError(400, { statusCode: 400, message: 'Floor cannot exceed total floors', error: 'Bad Request', timestamp: new Date().toISOString(), path: '/api/v1/properties' });
+  }
+}
+
+function imageFileError(file: File) {
+  const allowedMimes = ['image/jpeg', 'image/png', 'image/webp'];
+  const lower = file.name.toLowerCase();
+  const validExt = lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') || lower.endsWith('.webp');
+  if ((file.type && !allowedMimes.includes(file.type)) || (!file.type && !validExt)) return 'Yalnızca JPEG, PNG veya WebP formatında fotoğraf yüklenebilir.';
+  if (file.size > 10 * 1024 * 1024) return 'Fotoğraf 10 MB sınırını aşamaz.';
+  return null;
+}
+
+function UserAccountGate({ children }: { children: ReactNode }) {
+  const { user, isLoading, isAuthenticated } = useAuth();
+  const [, go] = useLocation();
+  useEffect(() => {
+    if (!isLoading && isAuthenticated && user?.role === 'AGENT') go('/panel');
+    if (!isLoading && isAuthenticated && user?.role === 'ADMIN') go('/admin');
+  }, [isLoading, isAuthenticated, user, go]);
+  if (isLoading || !isAuthenticated || !user || user.role !== 'USER') return null;
+  return <>{children}</>;
+}
+const accountLinks = [
+  ['/hesabim', 'Genel Bakış'],
+  ['/hesabim/ilanlar', 'İlanlarım'],
+  ['/hesabim/favoriler', 'Favorilerim'],
+  ['/hesabim/bilgiler', 'Hesap Bilgilerim'],
+] as const;
+function AccountLayout({ children }: { children: ReactNode }) {
+  const [location] = useLocation();
+  return <PublicLayout><div className="mx-auto min-w-0 max-w-6xl px-4 py-8 sm:px-5">
+    <nav aria-label="Hesap menüsü" className="mb-6 flex flex-wrap gap-2" data-testid="nav-account">{accountLinks.map(([href, label]) => {
+      const active = href === '/hesabim' ? location === '/hesabim' : location === href || location.startsWith(`${href}/`);
+      return <Link key={href} href={href} className={`max-w-full rounded-full border px-3 py-2 text-sm font-semibold ${active ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card hover:bg-muted'}`}>{label}</Link>;
+    })}</nav>
+    {children}
+  </div></PublicLayout>;
+}
+function AccountStat({ label, value, loading }: { label: string; value?: number; loading: boolean }) {
+  return <div className="surface min-w-0 p-5"><p className="text-sm text-muted-foreground">{label}</p>{loading ? <div className="skeleton mt-3 h-8 w-16"/> : <p className="mt-2 font-display text-3xl font-extrabold">{value ?? 0}</p>}</div>;
+}
+function AccountDashboardPage() {
+  const { user } = useAuth();
+  const isMock = DATA_MODE === 'mock';
+  const active = useMyUserProperties({ status: 'ACTIVE', page: 1, limit: 1 }, !isMock);
+  const passive = useMyUserProperties({ status: 'INACTIVE', page: 1, limit: 1 }, !isMock);
+  const recent = useMyUserProperties({ page: 1, limit: 3 }, !isMock);
+  const favorites = useFavorites(1, 1, !isMock);
+  const name = user?.firstName?.trim();
+  const retry = () => { void active.refetch(); void passive.refetch(); void favorites.refetch(); void recent.refetch(); };
+  return <AccountLayout>
+    <div className="flex min-w-0 flex-wrap items-start justify-between gap-4">
+      <div className="min-w-0">
+        <h1 className="font-display text-3xl font-extrabold" data-testid="text-account-greeting">Merhaba{name ? ` ${name}` : ''} 👋</h1>
+        <p className="mt-1 text-sm font-semibold">Bireysel Kullanıcı</p>
+        <p className="truncate text-sm text-muted-foreground">{user?.email || 'E-posta bilgisi yok'}</p>
+      </div>
+      <Link href="/ilan-ver" className="rounded-xl bg-primary px-4 py-3 text-sm font-bold text-primary-foreground" data-testid="link-account-create">+ İlan Ver</Link>
+    </div>
+    {isMock ? <div className="mt-6"><EmptyState title="Bu özellik gerçek API bağlantısı gerektirir." text="Hesap özeti gerçek API bağlantısı gerektirir."/></div> : <>
+      {(active.isError || passive.isError || favorites.isError) ? <div className="mt-6"><ErrorState message="Hesap özeti yüklenemedi." retry={retry}/></div> : <div className="mt-6 grid gap-3 sm:grid-cols-3">
+        <AccountStat label="Yayındaki İlanlar" value={active.data?.total} loading={active.isLoading}/>
+        <AccountStat label="Pasif İlan" value={passive.data?.total} loading={passive.isLoading}/>
+        <AccountStat label="Favoriler" value={favorites.data?.total} loading={favorites.isLoading}/>
+      </div>}
+      <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Link href="/ilan-ver" className="surface px-4 py-3 text-sm font-semibold">İlan Ver</Link>
+        <Link href="/hesabim/ilanlar" className="surface px-4 py-3 text-sm font-semibold">İlanlarımı Gör</Link>
+        <Link href="/hesabim/favoriler" className="surface px-4 py-3 text-sm font-semibold">Favorilerim</Link>
+        <Link href="/hesabim/bilgiler" className="surface px-4 py-3 text-sm font-semibold">Hesap Bilgilerim</Link>
+      </div>
+      <section className="mt-8" aria-labelledby="recent-listings-title">
+        <div className="flex flex-wrap items-center justify-between gap-3"><h2 id="recent-listings-title" className="font-display text-xl font-bold">Son İlanlarım</h2><Link href="/hesabim/ilanlar" className="text-sm font-semibold text-primary">İlanlarımın Tümünü Gör</Link></div>
+        {recent.isLoading ? <div className="mt-4 grid gap-3"><div className="skeleton h-20"/><div className="skeleton h-20"/></div> : recent.isError ? <div className="mt-4"><ErrorState message="İlanlarınız yüklenemedi." retry={() => recent.refetch()}/></div> : !recent.data?.items.length ? <div className="mt-4"><p className="font-semibold">Henüz ilanınız yok.</p><p className="mt-1 text-sm text-muted-foreground">İlk ilanınızı yayınlayarak başlayın.</p><Link href="/ilan-ver" className="mt-3 inline-flex min-h-11 items-center rounded-xl bg-primary px-4 text-sm font-bold text-primary-foreground">İlan Ver</Link></div> : <ul className="mt-4 grid gap-3">{recent.data.items.map(item => <li key={item.id}><UserPropertyRow item={item}/></li>)}</ul>}
+      </section>
+    </>}
+  </AccountLayout>;
+}
+function UserPropertyRow({ item }: { item: UserPropertyRecord }) {
+  return <div className="surface flex min-w-0 items-center gap-3 p-3">
+    <span className="grid h-16 w-16 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground" aria-hidden="true"><Home size={18}/></span>
+    <div className="min-w-0">
+      <p className="truncate font-semibold">{item.title}</p>
+      <p className="text-sm">{money(item.price)}</p>
+      <p className="text-xs text-muted-foreground">{labels[item.status] || item.status}</p>
+    </div>
+  </div>;
+}
+function MyListingsPage() {
+  const isMock = DATA_MODE === 'mock';
+  const { toast } = useToast();
+  const invalidate = useInvalidateUserProperties();
+  const [page, setPage] = useState(1);
+  const [status, setStatus] = useState<'' | 'ACTIVE' | 'INACTIVE'>('');
+  const query: MyPropertyListQuery = { page, limit: 12, ...(status ? { status } : {}) };
+  const list = useMyUserProperties(query, !isMock);
+  const statusMut = useMutation({
+    mutationFn: ({ id, next }: { id: string; next: 'ACTIVE' | 'INACTIVE' }) => userPropertiesApi.updateUserPropertyStatus(id, { status: next }),
+    onSuccess: (result) => {
+      invalidate(result.id);
+      toast({ title: result.status === 'INACTIVE' ? 'İlan pasife alındı.' : 'İlan tekrar yayına alındı.' });
+    },
+    onError: (err) => toast({ title: err instanceof ApiRequestError && err.status === 409 ? 'İlan durumu değiştirilemedi. Sayfayı yenileyip tekrar deneyin.' : showError(err) }),
+  });
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => userPropertiesApi.deleteUserProperty(id),
+    onSuccess: (_result, id) => { invalidate(id); toast({ title: 'İlan silindi.' }); },
+    onError: (err) => toast({ title: showError(err) }),
+  });
+  const busyId = statusMut.isPending ? statusMut.variables?.id : deleteMut.isPending ? deleteMut.variables : undefined;
+  const changeStatus = (item: UserPropertyRecord) => {
+    const next = item.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+    if (next === 'INACTIVE' && !window.confirm('Bu ilanı pasife almak istediğinize emin misiniz?\n\nİlanınız artık ziyaretçiler tarafından görüntülenmeyecek.')) return;
+    statusMut.mutate({ id: item.id, next });
+  };
+  const remove = (id: string) => {
+    if (window.confirm('Bu ilanı silmek istediğinize emin misiniz?\n\nBu işlem geri alınamaz.')) deleteMut.mutate(id);
+  };
+  return <AccountLayout>
+    <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+      <h1 className="font-display text-3xl font-extrabold">İlanlarım</h1>
+      <Link href="/ilan-ver" className="rounded-xl bg-primary px-4 py-3 text-sm font-bold text-primary-foreground" data-testid="link-new-listing">+ Yeni İlan Ver</Link>
+    </div>
+    {isMock ? <div className="mt-6"><EmptyState title="Bu özellik gerçek API bağlantısı gerektirir." text="İlan yönetimi gerçek API bağlantısı gerektirir."/></div> : <>
+      <p className="mt-2 text-sm text-muted-foreground">{list.data ? `Toplam ${list.data.total} ilan` : ' '}</p>
+      <div className="mt-4 flex flex-wrap gap-2" role="group" aria-label="İlan durumu">
+        {([['', 'Tümü'], ['ACTIVE', 'Yayında'], ['INACTIVE', 'Pasif']] as const).map(([value, label]) => <button key={label} type="button" className={`rounded-full border px-3 py-2 text-sm font-semibold ${status === value ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card'}`} onClick={() => { setStatus(value); setPage(1); }}>{label}</button>)}
+      </div>
+      {list.isLoading ? <div className="mt-5 grid gap-3"><div className="skeleton h-36"/><div className="skeleton h-36"/></div> : list.isError ? <div className="mt-5"><ErrorState message="İlanlarınız yüklenemedi." retry={() => list.refetch()}/></div> : !list.data?.items.length ? <div className="mt-5">{status ? <p className="text-sm text-muted-foreground">Bu durumda ilan yok.</p> : <EmptyState title="Henüz ilanınız yok." text="İlk ilanınızı yayınlayarak başlayın." href="/ilan-ver" action="İlan Ver"/>}</div> : <>
+        <ul className="mt-5 grid gap-3">{list.data.items.map(item => {
+          const pending = busyId === item.id;
+          const deactivating = pending && statusMut.isPending && statusMut.variables?.next === 'INACTIVE';
+          const activating = pending && statusMut.isPending && statusMut.variables?.next === 'ACTIVE';
+          const deleting = pending && deleteMut.isPending;
+          return <li key={item.id} className="surface min-w-0 p-4" data-testid={`card-my-property-${item.id}`}>
+            <div className="flex min-w-0 gap-3">
+              <span className="grid h-20 w-20 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground" aria-hidden="true"><Home size={18}/></span>
+              <div className="min-w-0">
+                <h2 className="truncate font-display text-lg font-bold">{item.title}</h2>
+                <p className="text-sm font-semibold">{money(item.price)} · {labels[item.listingType]} · {labels[item.propertyType]}</p>
+                <p className="truncate text-sm text-muted-foreground">{item.neighborhood}, {item.district}, {item.city}</p>
+                <p className="text-xs text-muted-foreground">{labels[item.status] || item.status} · {new Date(item.createdAt).toLocaleDateString('tr-TR')}</p>
+              </div>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {item.status === 'ACTIVE' && <Link href={`/ilan/${item.id}`} className="inline-flex min-h-11 items-center rounded-lg border border-border px-3 text-sm font-semibold" data-testid={`link-view-${item.id}`}>Görüntüle</Link>}
+              <Link href={`/hesabim/ilanlar/${item.id}/duzenle`} className="inline-flex min-h-11 items-center rounded-lg border border-border px-3 text-sm font-semibold" data-testid={`link-edit-${item.id}`}>Düzenle</Link>
+              {item.status === 'ACTIVE' && <button type="button" disabled={pending} className="inline-flex min-h-11 items-center rounded-lg border border-border px-3 text-sm font-semibold disabled:opacity-60" data-testid={`button-deactivate-${item.id}`} onClick={() => changeStatus(item)}>{deactivating ? 'Pasife alınıyor...' : 'Pasife Al'}</button>}
+              {item.status === 'INACTIVE' && <button type="button" disabled={pending} className="inline-flex min-h-11 items-center rounded-lg border border-border px-3 text-sm font-semibold disabled:opacity-60" data-testid={`button-activate-${item.id}`} onClick={() => changeStatus(item)}>{activating ? 'Yayına alınıyor...' : 'Yayına Al'}</button>}
+              <button type="button" disabled={pending} className="inline-flex min-h-11 items-center rounded-lg border border-destructive px-3 text-sm font-semibold text-destructive disabled:opacity-60" data-testid={`button-delete-${item.id}`} onClick={() => remove(item.id)}>{deleting ? 'Siliniyor...' : 'Sil'}</button>
+            </div>
+          </li>;
+        })}</ul>
+        {list.data && <Pagination page={list.data.page} limit={list.data.limit} total={list.data.total} onChange={setPage}/>}
+      </>}
+    </>}
+  </AccountLayout>;
+}
+function PropertyEditor({ edit = false, mode = 'AGENT' }: { edit?: boolean; mode?: 'AGENT' | 'INDIVIDUAL' }) {
+  const individual = mode === 'INDIVIDUAL';
   const isMock=DATA_MODE==='mock';
-  const [,params]=useRoute('/panel/ilanlar/:id/duzenle'); const id=edit?params?.id||'':'';
-  const [,go]=useLocation(); const qc=useQueryClient(); const invalidate=useInvalidateMarketplace(); const {toast}=useToast();
+  const [,agentParams]=useRoute('/panel/ilanlar/:id/duzenle');
+  const [,userParams]=useRoute('/hesabim/ilanlar/:id/duzenle');
+  const id=edit?((individual?userParams?.id:agentParams?.id)||''):'';
+  const [,go]=useLocation(); const qc=useQueryClient(); const invalidate=useInvalidateMarketplace(); const invalidateUser=useInvalidateUserProperties(); const {toast}=useToast();
   const cities=useApiCities();
   const [cityId,setCityId]=useState(''),[districtId,setDistrictId]=useState('');
   const [uploads,setUploads]=useState<PropertyImage[]>([]);
+  const [drafts,setDrafts]=useState<DraftImage[]>([]);
+  const draftsRef=useRef<DraftImage[]>([]);
+  const createdIdRef=useRef<string | null>(null);
+  const uploadedIds=useRef(new Map<string, string>());
+  const uploadSequence=useRef<string[]>([]);
+  const backendCoverId=useRef<string | null>(null);
+  const orderDirty=useRef(false);
+  const publishingRef=useRef(false);
+  const [publishing,setPublishing]=useState(false);
+  const [partialId,setPartialId]=useState<string | null>(null);
   const [imageBusy,setImageBusy]=useState(false);
   const [message,setMessage]=useState(''); const [errorMsg,setErrorMsg]=useState('');
+  const setDraftList=(next: DraftImage[])=>{ draftsRef.current=next; setDrafts(next); };
+  useEffect(()=>()=>{ for (const draft of draftsRef.current) URL.revokeObjectURL(draft.previewUrl); },[]);
   const districts=useApiDistricts(cityId), neighborhoods=useApiNeighborhoods(districtId);
-  const record=useMineProperty(id,edit&&!isMock);
+  const agentRecord=useMineProperty(id,!individual&&edit&&!isMock);
+  const userRecord=useMyUserProperty(id,individual&&edit&&!isMock);
+  const record=individual?userRecord:agentRecord;
+  const imageApi=individual?{
+    upload:userPropertiesApi.uploadUserPropertyImage,
+    cover:userPropertiesApi.setUserPropertyCover,
+    remove:userPropertiesApi.deleteUserPropertyImage,
+    order:userPropertiesApi.updateUserPropertyImageOrder,
+  }:{
+    upload:propertyImagesApi.uploadPropertyImage,
+    cover:propertyImagesApi.setCoverImage,
+    remove:propertyImagesApi.deletePropertyImage,
+    order:propertyImagesApi.updateImageOrder,
+  };
 
   const form=useForm<CreatePropertyRequest>({
     defaultValues:{
@@ -733,48 +997,29 @@ function PropertyEditor({edit=false}:{edit?:boolean}) {
 
   const mutation=useMutation({
     mutationFn:async(v:CreatePropertyRequest)=>{
-      if(!v.cityId||!v.districtId||!v.neighborhoodId){
-        throw new ApiRequestError(400,{statusCode:400,message:'Lütfen şehir, ilçe ve mahalle seçimlerini tamamlayın.',error:'Bad Request',timestamp:new Date().toISOString(),path:'/api/v1/properties'});
+      if(individual){
+        const land=v.propertyType==='LAND';
+        assertPropertyFields(v, land);
+        return userPropertiesApi.updateUserProperty(id, propertyPayload(v, land));
       }
-      const gross=Number(v.grossAreaM2);
-      const net=v.netAreaM2?.trim()?Number(v.netAreaM2.trim()):undefined;
-      if(net!==undefined&&net>gross){
-        throw new ApiRequestError(400,{statusCode:400,message:'Net area cannot exceed gross area',error:'Bad Request',timestamp:new Date().toISOString(),path:'/api/v1/properties'});
-      }
-      if(Number.isFinite(v.floor)&&Number.isFinite(v.totalFloors)&&(v.floor as number)>(v.totalFloors as number)){
-        throw new ApiRequestError(400,{statusCode:400,message:'Floor cannot exceed total floors',error:'Bad Request',timestamp:new Date().toISOString(),path:'/api/v1/properties'});
-      }
-      const data:CreatePropertyRequest={
-        title:v.title.trim(),
-        description:v.description.trim(),
-        listingType:v.listingType,
-        propertyType:v.propertyType,
-        price:v.price.trim(),
-        grossAreaM2:v.grossAreaM2.trim(),
-        ...(v.netAreaM2?.trim()?{netAreaM2:v.netAreaM2.trim()}:{}),
-        rooms:Number(v.rooms),
-        livingRooms:Number(v.livingRooms),
-        ...(Number.isFinite(v.buildingAge)?{buildingAge:Number(v.buildingAge)}:{}),
-        ...(Number.isFinite(v.floor)?{floor:Number(v.floor)}:{}),
-        ...(Number.isFinite(v.totalFloors)?{totalFloors:Number(v.totalFloors)}:{}),
-        ...(v.heatingType?{heatingType:v.heatingType}:{}),
-        cityId:v.cityId,
-        districtId:v.districtId,
-        neighborhoodId:v.neighborhoodId,
-        address:v.address.trim(),
-        latitude:v.latitude.trim(),
-        longitude:v.longitude.trim(),
-        isFurnished:Boolean(v.isFurnished),
-        hasBalcony:Boolean(v.hasBalcony),
-        hasElevator:Boolean(v.hasElevator),
-        hasParking:Boolean(v.hasParking),
-        inSite:Boolean(v.inSite),
-      };
+      assertPropertyFields(v, false);
+      const data = propertyPayload(v, false);
       return edit
         ? propertiesApi.updateProperty(id,data as UpdatePropertyRequest)
         : propertiesApi.createProperty(data);
     },
     onSuccess:async result=>{
+      if(individual){
+        qc.setQueryData(keys.userProperty(result.id),(prev:typeof record.data)=>({
+          ...result,
+          images:result.images??prev?.images??uploads,
+        }));
+        invalidateUser(result.id);
+        setErrorMsg('');
+        toast({title:'İlanınız güncellendi.'});
+        go('/hesabim/ilanlar');
+        return;
+      }
       qc.setQueryData(keys.myProperty(result.id),(prev:typeof record.data)=>({
         ...result,
         images:result.images??prev?.images??uploads,
@@ -794,24 +1039,141 @@ function PropertyEditor({edit=false}:{edit?:boolean}) {
     },
   });
 
-  const upload=async(file:File)=>{
-    const allowedMimes=['image/jpeg','image/png','image/webp'];
-    const lower=file.name.toLowerCase();
-    const validExt=lower.endsWith('.jpg')||lower.endsWith('.jpeg')||lower.endsWith('.png')||lower.endsWith('.webp');
-    if((file.type&&!allowedMimes.includes(file.type))||(!file.type&&!validExt)){
-      setErrorMsg('Yalnızca JPEG, PNG veya WebP formatında fotoğraf yüklenebilir.');
-      return;
+  const publish=async(v:CreatePropertyRequest)=>{
+    if(publishingRef.current) return;
+    publishingRef.current=true;
+    setPublishing(true);
+    setMessage('');
+    setErrorMsg('');
+    const land=v.propertyType==='LAND';
+    try{
+      let propertyId=createdIdRef.current;
+      if(!propertyId){
+        assertPropertyFields(v, land);
+        for(const draft of draftsRef.current){
+          const problem=imageFileError(draft.file);
+          if(problem){ setErrorMsg(problem); return; }
+        }
+        const created=await userPropertiesApi.createUserProperty(propertyPayload(v, land));
+        propertyId=created.id;
+        createdIdRef.current=propertyId;
+      }
+      for(const draft of draftsRef.current){
+        if(uploadedIds.current.has(draft.key)) continue;
+        try{
+          const image=await userPropertiesApi.uploadUserPropertyImage(propertyId, draft.file);
+          uploadedIds.current.set(draft.key, image.id);
+          uploadSequence.current.push(image.id);
+          if(!backendCoverId.current) backendCoverId.current=image.id;
+        }catch{
+          setPartialId(propertyId);
+          setErrorMsg('İlan oluşturuldu ancak bazı fotoğraflar yüklenemedi.');
+          return;
+        }
+      }
+      const currentDrafts=draftsRef.current;
+      if(orderDirty.current && currentDrafts.length){
+        try{
+          await userPropertiesApi.updateUserPropertyImageOrder(propertyId, currentDrafts.map(d=>uploadedIds.current.get(d.key)!));
+          orderDirty.current=false;
+        }catch{
+          setPartialId(propertyId);
+          setErrorMsg('İlan oluşturuldu ancak fotoğraf sırası kaydedilemedi.');
+          return;
+        }
+      }
+      const cover=currentDrafts.find(d=>d.isCover) ?? currentDrafts[0];
+      const coverId=cover ? uploadedIds.current.get(cover.key) : undefined;
+      if(coverId && coverId!==backendCoverId.current){
+        try{
+          await userPropertiesApi.setUserPropertyCover(propertyId, coverId);
+          backendCoverId.current=coverId;
+        }catch{
+          setPartialId(propertyId);
+          setErrorMsg('İlan oluşturuldu ancak kapak fotoğrafı kaydedilemedi.');
+          return;
+        }
+      }
+      invalidate(propertyId);
+      invalidateUser(propertyId);
+      toast({title:'İlanınız başarıyla yayınlandı.'});
+      go(`/ilan/${propertyId}`);
+    }catch(error){
+      setErrorMsg(showError(error));
+    }finally{
+      publishingRef.current=false;
+      setPublishing(false);
     }
-    if(file.size>10*1024*1024){
-      setErrorMsg('Fotoğraf 10 MB sınırını aşamaz.');
+  };
+
+  const addLocalFiles=(files:FileList|null)=>{
+    if(!files) return;
+    const next=[...draftsRef.current];
+    for(const file of Array.from(files)){
+      if(next.length>=20){
+        setErrorMsg('Bir ilanda en fazla 20 canlı fotoğraf olabilir.');
+        break;
+      }
+      const problem=imageFileError(file);
+      if(problem){ setErrorMsg(problem); continue; }
+      next.push({ key:crypto.randomUUID(), file, previewUrl:URL.createObjectURL(file), isCover:next.length===0 });
+    }
+    if(next.length && !next.some(d=>d.isCover)) next[0]={...next[0], isCover:true};
+    setDraftList(next);
+  };
+
+  const moveDraft=(from:number,to:number)=>{
+    const next=[...draftsRef.current];
+    const [item]=next.splice(from,1);
+    if(!item) return;
+    next.splice(to,0,item);
+    if(uploadedIds.current.size>0) orderDirty.current=true;
+    setDraftList(next);
+  };
+
+  const coverDraft=(key:string)=>setDraftList(draftsRef.current.map(d=>({...d, isCover:d.key===key})));
+
+  const removeDraft=async(key:string)=>{
+    const imageId=uploadedIds.current.get(key);
+    const propertyId=createdIdRef.current;
+    if(imageId && propertyId){
+      if(publishingRef.current) return;
+      publishingRef.current=true;
+      setPublishing(true);
+      setErrorMsg('');
+      try{
+        await userPropertiesApi.deleteUserPropertyImage(propertyId, imageId);
+        uploadedIds.current.delete(key);
+        uploadSequence.current=uploadSequence.current.filter(id=>id!==imageId);
+        if(backendCoverId.current===imageId) backendCoverId.current=uploadSequence.current[0]??null;
+      }catch(error){
+        setErrorMsg(showError(error));
+        return;
+      }finally{
+        publishingRef.current=false;
+        setPublishing(false);
+      }
+    }
+    const current=draftsRef.current;
+    const target=current.find(d=>d.key===key);
+    if(target) URL.revokeObjectURL(target.previewUrl);
+    let remaining=current.filter(d=>d.key!==key);
+    if(target?.isCover && remaining[0]) remaining=remaining.map((d,i)=>({...d, isCover:i===0}));
+    setDraftList(remaining);
+  };
+
+  const upload=async(file:File)=>{
+    const problem=imageFileError(file);
+    if(problem){
+      setErrorMsg(problem);
       return;
     }
     setImageBusy(true);
     setErrorMsg('');
     try{
-      const result=await propertyImagesApi.uploadPropertyImage(id,file);
+      const result=await imageApi.upload(id,file);
       setUploads(prev=>[...prev,{id:result.id,url:result.url,sortOrder:result.sortOrder,isCover:result.isCover}].sort((a,b)=>a.sortOrder-b.sortOrder));
-      invalidate(id);
+      if(individual) invalidateUser(id); else invalidate(id);
       setMessage('Fotoğraf yüklendi.');
       toast({title:'Fotoğraf yüklendi.'});
     }catch(e){
@@ -838,9 +1200,9 @@ function PropertyEditor({edit=false}:{edit?:boolean}) {
     setImageBusy(true);
     setErrorMsg('');
     try{
-      await propertyImagesApi.setCoverImage(id,imageId);
+      await imageApi.cover(id,imageId);
       setUploads(xs=>xs.map(x=>({...x,isCover:x.id===imageId})));
-      invalidate(id);
+      if(individual) invalidateUser(id); else invalidate(id);
       setMessage('Kapak fotoğrafı güncellendi.');
     }catch(e){
       setErrorMsg(showError(e));
@@ -853,7 +1215,7 @@ function PropertyEditor({edit=false}:{edit?:boolean}) {
     setImageBusy(true);
     setErrorMsg('');
     try{
-      await propertyImagesApi.deletePropertyImage(id,imageId);
+      await imageApi.remove(id,imageId);
       setUploads(xs=>{
         const removed=xs.find(x=>x.id===imageId);
         const remaining=xs.filter(x=>x.id!==imageId);
@@ -862,7 +1224,7 @@ function PropertyEditor({edit=false}:{edit?:boolean}) {
         }
         return remaining;
       });
-      invalidate(id);
+      if(individual) invalidateUser(id); else invalidate(id);
       setMessage('Fotoğraf silindi.');
     }catch(e){
       setErrorMsg(showError(e));
@@ -881,8 +1243,8 @@ function PropertyEditor({edit=false}:{edit?:boolean}) {
     setImageBusy(true);
     setErrorMsg('');
     try{
-      await propertyImagesApi.updateImageOrder(id,reindexed.map(x=>x.id));
-      invalidate(id);
+      await imageApi.order(id,reindexed.map(x=>x.id));
+      if(individual) invalidateUser(id); else invalidate(id);
       setMessage('Fotoğraf sıralaması güncellendi.');
     }catch(e){
       setUploads(previous);
@@ -892,49 +1254,74 @@ function PropertyEditor({edit=false}:{edit?:boolean}) {
     }
   };
 
-  const field=(name:keyof CreatePropertyRequest,label:string,type='text',required=true,placeholder?:string,extraRules?:RegisterOptions<CreatePropertyRequest,keyof CreatePropertyRequest>)=><label key={name} className="grid gap-1.5 text-sm font-semibold">{label}{required?' *':''}<input className={inputClass} type={type} step={type==='number'?'1':undefined} placeholder={placeholder} data-testid={`input-prop-${name}`} {...form.register(name,{required:required?`${label} zorunludur.`:false,...(type==='number'?{setValueAs:(v:string)=>v===''||v===null||v===undefined?undefined:Number(v)}:{}),...(name==='title'?{minLength:{value:5,message:'En az 5 karakter girin.'},maxLength:{value:160,message:'En fazla 160 karakter olabilir.'}}:{}),...(name==='address'?{minLength:{value:5,message:'Açık adres en az 5 karakter olmalıdır.'},maxLength:{value:300,message:'Açık adres en fazla 300 karakter olabilir.'}}:{}),...extraRules})}/><span className="text-xs text-destructive">{form.formState.errors[name]?.message as string}</span></label>;
+  const field=(name:keyof CreatePropertyRequest,label:string,type='text',required=true,placeholder?:string,extraRules?:RegisterOptions<CreatePropertyRequest,keyof CreatePropertyRequest>)=><label key={name} className="grid gap-1.5 text-sm font-semibold">{label}{required?' *':''}<input className={inputClass} type={type} required={required} aria-invalid={Boolean(form.formState.errors[name])} step={type==='number'?'1':undefined} placeholder={placeholder} data-testid={`input-prop-${name}`} {...form.register(name,{required:required?`${label} zorunludur.`:false,...(type==='number'?{setValueAs:(v:string)=>v===''||v===null||v===undefined?undefined:Number(v)}:{}),...(name==='title'?{minLength:{value:5,message:'Başlık en az 5 karakter olmalıdır.'},maxLength:{value:160,message:'Başlık en fazla 160 karakter olabilir.'}}:{}),...(name==='address'?{minLength:{value:5,message:'Açık adres en az 5 karakter olmalıdır.'},maxLength:{value:300,message:'Açık adres en fazla 300 karakter olabilir.'}}:{}),...extraRules})}/><span className="text-xs text-destructive">{form.formState.errors[name]?.message as string}</span></label>;
 
-  if(isMock)return <PanelLayout><EmptyState title="Bu özellik gerçek API bağlantısı gerektirir" text="İlan oluşturmak ve düzenlemek için gerçek API modunda giriş yapın." href="/ilanlar" action="İlanları keşfet"/></PanelLayout>;
-  if(edit&&record.isLoading)return <PanelLayout><div className="surface p-8"><div className="skeleton h-80"/></div></PanelLayout>;
+  const land=individual && form.watch('propertyType')==='LAND';
+  const busy=individual&&!edit?publishing:mutation.isPending;
+  const frame=(children:ReactNode)=>individual&&edit
+    ? <AccountLayout>{children}</AccountLayout>
+    : individual
+      ? <PublicLayout><div className="mx-auto max-w-4xl px-5 py-10">{children}</div></PublicLayout>
+      : <PanelLayout>{children}</PanelLayout>;
+  const features:(string[])[]=[['isFurnished','Eşyalı'],['hasBalcony','Balkon'],...(land?[]:[['hasElevator','Asansör']]),['hasParking','Otopark'],['inSite','Site içinde']];
+
+  if(isMock)return frame(<EmptyState title="Bu özellik gerçek API bağlantısı gerektirir" text="İlan oluşturmak ve düzenlemek için gerçek API modunda giriş yapın." href="/ilanlar" action="İlanları keşfet"/>);
+  if(edit&&record.isLoading)return frame(<div className="surface p-8"><div className="skeleton h-80"/></div>);
   if(edit&&record.error){
-    const notFound=record.error instanceof ApiRequestError&&record.error.status===404;
-    return <PanelLayout>{notFound?<EmptyState title="İlan bulunamadı" text="Bu ilan mevcut değil, silinmiş veya başka bir hesaba ait." href="/panel/ilanlar" action="İlanlarıma dön"/>:<ErrorState retry={()=>record.refetch()} message={showError(record.error)}/>}</PanelLayout>;
+    const notFound=record.error instanceof ApiRequestError&&(record.error.status===404||(individual&&record.error.status===400));
+    return frame(notFound?<EmptyState title={individual?'İlan bulunamadı veya bu ilana erişim yetkiniz yok.':'İlan bulunamadı'} text={individual?'Adres hatalı olabilir ya da ilan başka bir hesaba aittir.':'Bu ilan mevcut değil, silinmiş veya başka bir hesaba ait.'} href={individual?'/hesabim/ilanlar':'/panel/ilanlar'} action="İlanlarıma dön"/>:<ErrorState retry={()=>record.refetch()} message={showError(record.error)}/>);
   }
 
-  return <PanelLayout>
+  return frame(<>
     <div className="mb-5">
-      <Link href="/panel/ilanlar" className="mb-3 inline-flex items-center gap-2 text-sm text-muted-foreground"><ArrowLeft size={15}/> İlanlara dön</Link>
+      <Link href={individual&&edit?'/hesabim/ilanlar':individual?'/ilanlar':'/panel/ilanlar'} className="mb-3 inline-flex items-center gap-2 text-sm text-muted-foreground"><ArrowLeft size={15}/> {individual&&edit?'İlanlarıma dön':'İlanlara dön'}</Link>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="font-display text-2xl font-extrabold">{edit?'İlanı düzenle':'Yeni ilan oluştur'}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">İlanınızı doğru ve eksiksiz bilgilerle yayınlayın.</p>
+          <h2 className="font-display text-2xl font-extrabold">{individual&&edit?'İlanı düzenle':individual?'İlan Ver':edit?'İlanı düzenle':'Yeni ilan oluştur'}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">{individual&&edit?'Bilgileri ve fotoğrafları güncelleyin.':individual?'Bilgileri doldurun, fotoğrafları seçin ve ilanı yayınlayın.':'İlanınızı doğru ve eksiksiz bilgilerle yayınlayın.'}</p>
         </div>
         {edit&&record.data&&<span className="rounded-full bg-secondary px-3 py-1 text-xs font-bold text-primary" data-testid="badge-editor-status">Durum: {labels[record.data.status]} · {record.data.currency}</span>}
       </div>
     </div>
 
-    <form className="grid gap-5" onSubmit={form.handleSubmit(v=>{setMessage('');setErrorMsg('');mutation.mutate(v);})}>
-      <div className="surface p-6">
-        <h3 className="mb-5 font-display text-xl font-bold">İlan bilgileri</h3>
+    <form className="grid gap-5" aria-busy={busy||imageBusy} data-testid={individual&&edit?'form-user-property-edit':individual?'form-ilan-ver':'form-agent-property'} onSubmit={form.handleSubmit(v=>{ if(individual&&!edit){ void publish(v); return; } setMessage(''); setErrorMsg(''); mutation.mutate(v); })}>
+      <section className="surface p-6" aria-labelledby="section-listing-type">
+        <h3 id="section-listing-type" className="mb-5 font-display text-xl font-bold">1. İlan Türü</h3>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <FilterSelect label="İlan türü *" value={form.watch('listingType')} onChange={v=>form.setValue('listingType',(v||'SALE') as CreatePropertyRequest['listingType'])} options={[['SALE','Satılık'],['RENT','Kiralık']]}/>
+          <FilterSelect label="Emlak tipi *" value={form.watch('propertyType')} onChange={v=>form.setValue('propertyType',(v||'APARTMENT') as CreatePropertyRequest['propertyType'])} options={['APARTMENT','HOUSE','VILLA','LAND','WORKPLACE'].map(k=>[k,labels[k]])}/>
+        </div>
+      </section>
+
+      <section className="surface p-6" aria-labelledby="section-basics">
+        <h3 id="section-basics" className="mb-5 font-display text-xl font-bold">2. Temel Bilgiler</h3>
         <div className="grid gap-4 sm:grid-cols-2">
           {field('title','İlan başlığı','text',true,'5–160 karakter')}
-          {field('price','Fiyat (₺)','text',true,'Örn. 4250000.50',{pattern:{value:/^\d+(\.\d{1,2})?$/,message:'Geçerli bir fiyat girin (örn. 4250000.50).'},validate:(val)=>Number(val)>0||'Fiyat 0’dan büyük olmalıdır.'})}
-          <FilterSelect label="İlan türü" value={form.watch('listingType')} onChange={v=>form.setValue('listingType',(v||'SALE') as CreatePropertyRequest['listingType'])} options={[['SALE','Satılık'],['RENT','Kiralık']]}/>
-          <FilterSelect label="Emlak tipi" value={form.watch('propertyType')} onChange={v=>form.setValue('propertyType',(v||'APARTMENT') as CreatePropertyRequest['propertyType'])} options={['APARTMENT','HOUSE','VILLA','LAND','WORKPLACE'].map(k=>[k,labels[k]])}/>
-          {field('grossAreaM2','Brüt alan (m²)','text',true,'Örn. 145.00',{pattern:{value:/^\d+(\.\d{1,2})?$/,message:'Geçerli bir alan girin (örn. 145.00).'},validate:(val)=>Number(val)>0||'Brüt alan 0’dan büyük olmalıdır.'})}
-          {field('netAreaM2','Net alan (m²)','text',false,'Örn. 125.00',{pattern:{value:/^\d+(\.\d{1,2})?$/,message:'Geçerli bir alan girin (örn. 125.00).'},validate:(val)=>!val||Number(val)>0||'Net alan 0’dan büyük olmalıdır.'})}
-          {field('rooms','Oda sayısı','number',true,'0–50',{min:{value:0,message:'En az 0 olabilir.'},max:{value:50,message:'En fazla 50 olabilir.'}})}
-          {field('livingRooms','Salon sayısı','number',true,'0–20',{min:{value:0,message:'En az 0 olabilir.'},max:{value:20,message:'En fazla 20 olabilir.'}})}
-          {field('buildingAge','Bina yaşı','number',false,'0–300',{min:{value:0,message:'En az 0 olabilir.'},max:{value:300,message:'En fazla 300 olabilir.'}})}
-          {field('floor','Bulunduğu kat','number',false,'-5 ile 200 arası',{min:{value:-5,message:'En az -5 olabilir.'},max:{value:200,message:'En fazla 200 olabilir.'}})}
-          {field('totalFloors','Toplam kat','number',false,'1–200',{min:{value:1,message:'En az 1 olabilir.'},max:{value:200,message:'En fazla 200 olabilir.'}})}
-          <FilterSelect label="Isıtma" value={form.watch('heatingType')||''} onChange={v=>form.setValue('heatingType',v?v as NonNullable<CreatePropertyRequest['heatingType']>:undefined)} options={['COMBI','CENTRAL','FLOOR_HEATING','STOVE','NONE','OTHER'].map(k=>[k,labels[k]])} empty="Belirtilmedi"/>
-          <label className="grid gap-2 text-sm font-semibold sm:col-span-2">Açıklama *<textarea className={`${inputClass} h-32 py-3`} data-testid="input-prop-description" {...form.register('description',{required:'Açıklama zorunludur.',minLength:{value:20,message:'En az 20 karakter girin.'},maxLength:{value:5000,message:'En fazla 5000 karakter olabilir.'}})}/><span className="text-xs text-destructive">{form.formState.errors.description?.message as string}</span></label>
+          {field('price','Fiyat','text',true,'Örn. 4250000.50',{pattern:{value:/^\d+(\.\d{1,2})?$/,message:'Fiyat geçerli değildir.'},validate:(val)=>Number(val)>0||'Fiyat 0’dan büyük olmalıdır.'})}
+          <label className="grid gap-2 text-sm font-semibold sm:col-span-2">Açıklama *<textarea required aria-invalid={Boolean(form.formState.errors.description)} className={`${inputClass} h-32 py-3`} data-testid="input-prop-description" {...form.register('description',{required:'Açıklama zorunludur.',minLength:{value:20,message:'Açıklama en az 20 karakter olmalıdır.'},maxLength:{value:5000,message:'Açıklama en fazla 5000 karakter olabilir.'}})}/><span className="text-xs text-destructive">{form.formState.errors.description?.message as string}</span></label>
         </div>
-      </div>
+      </section>
+
+      <section className="surface p-6" aria-labelledby="section-features">
+        <h3 id="section-features" className="mb-5 font-display text-xl font-bold">3. Emlak Özellikleri</h3>
+        <div className="grid gap-4 sm:grid-cols-2">
+          {field('grossAreaM2','Brüt alan (m²)','text',true,'Örn. 145.00',{pattern:{value:/^\d+(\.\d{1,2})?$/,message:'Brüt alan geçerli değildir.'},validate:(val)=>Number(val)>0||'Brüt alan 0’dan büyük olmalıdır.'})}
+          {field('netAreaM2','Net alan (m²)','text',false,'Örn. 125.00',{pattern:{value:/^\d+(\.\d{1,2})?$/,message:'Net alan geçerli değildir.'},validate:(val)=>!val||Number(val)>0||'Net alan 0’dan büyük olmalıdır.'})}
+          {!land&&field('rooms','Oda sayısı','number',true,'0–50',{min:{value:0,message:'En az 0 olabilir.'},max:{value:50,message:'En fazla 50 olabilir.'}})}
+          {!land&&field('livingRooms','Salon sayısı','number',true,'0–20',{min:{value:0,message:'En az 0 olabilir.'},max:{value:20,message:'En fazla 20 olabilir.'}})}
+          {field('buildingAge','Bina yaşı','number',false,'0–300',{min:{value:0,message:'En az 0 olabilir.'},max:{value:300,message:'En fazla 300 olabilir.'}})}
+          {!land&&field('floor','Bulunduğu kat','number',false,'-5 ile 200 arası',{min:{value:-5,message:'En az -5 olabilir.'},max:{value:200,message:'En fazla 200 olabilir.'}})}
+          {!land&&field('totalFloors','Toplam kat','number',false,'1–200',{min:{value:1,message:'En az 1 olabilir.'},max:{value:200,message:'En fazla 200 olabilir.'}})}
+          {!land&&<FilterSelect label="Isıtma" value={form.watch('heatingType')||''} onChange={v=>form.setValue('heatingType',v?v as NonNullable<CreatePropertyRequest['heatingType']>:undefined)} options={['COMBI','CENTRAL','FLOOR_HEATING','STOVE','NONE','OTHER'].map(k=>[k,labels[k]])} empty="Belirtilmedi"/>}
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          {features.map(([k,l])=><label key={k} className="flex items-center gap-3 rounded-xl border border-border p-3 text-sm font-medium"><input type="checkbox" className="h-4 w-4 accent-primary" data-testid={`checkbox-prop-${k}`} {...form.register(k as keyof CreatePropertyRequest)}/>{l}</label>)}
+        </div>
+        {land&&<p className="mt-3 text-xs text-muted-foreground">Arsa ilanında oda, kat, ısıtma ve asansör alanları istenmez.</p>}
+      </section>
 
       <div className="surface p-6">
-        <h3 className="mb-5 font-display text-xl font-bold">Konum</h3>
+        <h3 id="section-location" className="mb-5 font-display text-xl font-bold">4. Konum</h3>
         <div className="grid gap-4 sm:grid-cols-3">
           <FilterSelect label="Şehir *" value={cityId} onChange={v=>{setCityId(v);setDistrictId('');form.setValue('cityId',v);form.setValue('districtId','');form.setValue('neighborhoodId','');}} options={(cities.data||[]).map(c=>[c.id,c.name])}/>
           <FilterSelect label="İlçe *" value={districtId} onChange={v=>{setDistrictId(v);form.setValue('districtId',v);form.setValue('neighborhoodId','');}} options={(districts.data||[]).map(c=>[c.id,c.name])} disabled={!cityId}/>
@@ -946,17 +1333,29 @@ function PropertyEditor({edit=false}:{edit?:boolean}) {
         <p className="mt-3 text-xs text-muted-foreground">Şehir, ilçe ve mahalle seçimleri gerçek konum kayıtlarından (UUID) alınır.</p>
       </div>
 
-      <div className="surface p-6">
-        <h3 className="mb-4 font-display text-xl font-bold">Ek özellikler</h3>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {[['isFurnished','Eşyalı'],['hasBalcony','Balkon'],['hasElevator','Asansör'],['hasParking','Otopark'],['inSite','Site içinde']].map(([k,l])=><label key={k} className="flex items-center gap-3 rounded-xl border border-border p-3 text-sm font-medium"><input type="checkbox" className="h-4 w-4 accent-primary" data-testid={`checkbox-prop-${k}`} {...form.register(k as keyof CreatePropertyRequest)}/>{l}</label>)}
-        </div>
-      </div>
-
       <div className="surface p-6" data-testid="section-property-images">
-        <h3 className="font-display text-xl font-bold">Fotoğraflar</h3>
+        <h3 id="section-images" className="font-display text-xl font-bold">5. Görseller</h3>
         <p className="mt-1 text-sm text-muted-foreground">JPEG, PNG veya WebP · en fazla 10 MB / fotoğraf · en çok 20 fotoğraf</p>
-        {edit?<>
+        {individual&&!edit?<>
+          <label className={`mt-4 flex cursor-pointer items-center justify-center rounded-xl border border-dashed border-border p-8 text-center text-sm font-semibold hover:border-primary ${busy?'pointer-events-none opacity-60':''}`}>
+            {busy?'Fotoğraf işlemi yapılıyor…':'Fotoğraf seçin'}
+            <input className="sr-only" type="file" disabled={busy} data-testid="input-user-property-images" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" multiple onChange={e=>{addLocalFiles(e.target.files);e.currentTarget.value='';}}/>
+          </label>
+          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {drafts.map((image,i)=><div key={image.key} className="relative overflow-hidden rounded-xl border border-border" data-testid={`card-draft-image-${image.key}`}>
+              <img src={image.previewUrl} alt="Seçilen ilan fotoğrafı" className="aspect-square w-full object-cover"/>
+              <div className="flex items-center justify-between gap-2 p-2">
+                <button type="button" disabled={busy||image.isCover} data-testid={`button-cover-draft-${image.key}`} onClick={()=>coverDraft(image.key)} className="text-xs font-semibold text-primary disabled:opacity-60">{image.isCover?'Kapak':'Kapak yap'}</button>
+                <button type="button" disabled={busy} data-testid={`button-delete-draft-${image.key}`} onClick={()=>void removeDraft(image.key)} className="text-xs text-destructive disabled:opacity-60">Sil</button>
+              </div>
+              <div className="flex items-center justify-between border-t border-border px-2 py-1.5 text-xs">
+                <button type="button" disabled={busy||i===0} onClick={()=>moveDraft(i,i-1)} aria-label="Öne taşı" className="inline-flex items-center gap-1 font-medium text-muted-foreground hover:text-foreground disabled:opacity-35"><ChevronLeft size={14}/>Öne taşı</button>
+                <button type="button" disabled={busy||i===drafts.length-1} onClick={()=>moveDraft(i,i+1)} aria-label="Geri taşı" className="inline-flex items-center gap-1 font-medium text-muted-foreground hover:text-foreground disabled:opacity-35">Geri taşı<ChevronRight size={14}/></button>
+              </div>
+            </div>)}
+          </div>
+          {!drafts.length&&<p className="mt-3 text-xs text-muted-foreground">Fotoğraf seçmek zorunlu değil. Seçilenler ilan yayınlanırken yüklenir.</p>}
+        </>:edit?<>
           <label className={`mt-4 flex cursor-pointer items-center justify-center rounded-xl border border-dashed border-border p-8 text-center text-sm font-semibold hover:border-primary ${imageBusy?'pointer-events-none opacity-60':''}`}>
             {imageBusy?'Fotoğraf işlemi yapılıyor…':'Fotoğraf seçin'}
             <input className="sr-only" type="file" disabled={imageBusy} data-testid="input-property-images" accept="image/jpeg,image/png,image/webp" multiple onChange={e=>{void addFiles(e.target.files);e.currentTarget.value='';}}/>
@@ -981,11 +1380,25 @@ function PropertyEditor({edit=false}:{edit?:boolean}) {
       {message&&<p role="status" className="text-sm text-primary" data-testid="text-property-feedback">{message}</p>}
       {errorMsg&&<p role="alert" className="text-sm text-destructive" data-testid="text-property-error">{errorMsg}</p>}
       <div className="flex flex-wrap justify-end gap-3">
-        <Link href="/panel/ilanlar" className="rounded-xl border border-border px-5 py-3 font-semibold">Vazgeç</Link>
-        <button className="rounded-xl bg-primary px-6 py-3 font-bold text-white disabled:opacity-60" disabled={mutation.isPending} data-testid="button-submit-property">{mutation.isPending?'Kaydediliyor…':edit?'İlanı kaydet':'İlanı oluştur'}</button>
+        <Link href={individual?'/ilanlar':'/panel/ilanlar'} className="rounded-xl border border-border px-5 py-3 font-semibold">Vazgeç</Link>
+        {partialId&&<Link href={`/ilan/${partialId}`} className="rounded-xl border border-border px-5 py-3 font-semibold" data-testid="link-view-created-property">İlanı görüntüle</Link>}
+        <button type="submit" className="rounded-xl bg-primary px-6 py-3 font-bold text-white disabled:opacity-60" disabled={busy||imageBusy} data-testid="button-submit-property">{individual&&!edit?(publishing?'İlan yayınlanıyor...':partialId?'Tekrar dene':'İlanı Yayınla'):mutation.isPending?'Kaydediliyor…':edit?(individual?'Değişiklikleri Kaydet':'İlanı kaydet'):'İlanı oluştur'}</button>
       </div>
     </form>
-  </PanelLayout>;
+  </>);
+}
+function UserListingPage() {
+  const { user, isLoading, isAuthenticated } = useAuth();
+  const [, go] = useLocation();
+  useEffect(() => {
+    if (!isLoading && isAuthenticated && user?.role === 'AGENT') go('/panel/ilanlar/yeni');
+  }, [isLoading, isAuthenticated, user, go]);
+  if (isLoading || !isAuthenticated || !user) return null;
+  if (user.role === 'AGENT') return null;
+  if (user.role !== 'USER') {
+    return <PublicLayout><div className="mx-auto max-w-5xl px-5 py-16"><EmptyState title="Bu sayfa bireysel ilan içindir" text="Yönetici hesabıyla bireysel ilan formu kullanılmaz." href="/admin" action="Yönetime dön"/></div></PublicLayout>;
+  }
+  return <PropertyEditor mode="INDIVIDUAL"/>;
 }
 function AgentProfilePage() {
   const isMock=DATA_MODE==='mock';
@@ -1484,7 +1897,7 @@ function AdminPropertiesPage() {
       <div className="surface overflow-x-auto">
         <table className="data-table">
           <thead><tr><th>İlan</th><th>Konum</th><th>Durum</th><th>Emlakçı</th><th>Tarih</th><th></th></tr></thead>
-          <tbody>{data.data.items.map(p=><tr key={p.id} data-testid={`row-admin-prop-${p.id}`}><td><b>{p.title}</b><small>{money(p.price)} · {labels[p.listingType]} · {labels[p.propertyType]}</small></td><td>{p.city}, {p.district}</td><td>{labels[p.status]}{p.deletedAt?' (Silinmiş)':''}</td><td>{p.agent.companyName}<small>{p.agent.isActive?'Profil aktif':'Profil pasif'} · {p.agent.user.isActive?'Hesap aktif':'Hesap pasif'}</small></td><td>{new Date(p.createdAt).toLocaleDateString('tr-TR')}</td><td><Link href={`/admin/ilanlar/${p.id}`} className="text-sm font-bold text-primary" data-testid={`link-admin-prop-${p.id}`}>Detay</Link></td></tr>)}</tbody>
+          <tbody>{data.data.items.map(p=><tr key={p.id} data-testid={`row-admin-prop-${p.id}`}><td><b>{p.title}</b><small>{money(p.price)} · {labels[p.listingType]} · {labels[p.propertyType]}</small></td><td>{p.city}, {p.district}</td><td>{labels[p.status]}{p.deletedAt?' (Silinmiş)':''}</td><td>{p.agent?<>{p.agent.companyName}<small>{p.agent.isActive?'Profil aktif':'Profil pasif'} · {p.agent.user.isActive?'Hesap aktif':'Hesap pasif'}</small></>:<>Bireysel<small>{p.owner?.isActive?'Hesap aktif':'Hesap pasif'}</small></>}</td><td>{new Date(p.createdAt).toLocaleDateString('tr-TR')}</td><td><Link href={`/admin/ilanlar/${p.id}`} className="text-sm font-bold text-primary" data-testid={`link-admin-prop-${p.id}`}>Detay</Link></td></tr>)}</tbody>
         </table>
       </div>
       <Pagination page={data.data.page} limit={data.data.limit} total={data.data.total} onChange={setPage}/>
@@ -1559,10 +1972,16 @@ function AdminPropertyDetailPage() {
           <Info label="Oda / Alan" value={`${q.data.rooms}+${q.data.livingRooms} · Brüt ${area(q.data.grossAreaM2)} m²${q.data.netAreaM2?` · Net ${area(q.data.netAreaM2)} m²`:''}`}/>
           <Info label="Konum" value={`${q.data.neighborhood}, ${q.data.district}, ${q.data.city}`}/>
           <Info label="Koordinatlar" value={`${q.data.latitude}, ${q.data.longitude}`}/>
+          {q.data.agent?<>
           <Info label="Emlakçı" value={`${q.data.agent.companyName} (${q.data.agent.phone})`}/>
           <Info label="Emlakçı e-postası" value={`${q.data.agent.email} · Hesap: ${q.data.agent.user.email}`}/>
           <Info label="Hesap durumu" value={q.data.agent.user.isActive?'Aktif':'Pasif'}/>
           <Info label="Profil durumu" value={q.data.agent.isActive?'Aktif':'Pasif'}/>
+          </>:<>
+          <Info label="Satıcı" value={q.data.sellerType==='INDIVIDUAL'?'Bireysel':'—'}/>
+          <Info label="Hesap" value={q.data.owner?.email??'—'}/>
+          <Info label="Hesap durumu" value={q.data.owner?.isActive?'Aktif':'Pasif'}/>
+          </>}
           <Info label="Adres" value={q.data.address}/>
           {q.data.deletedAt&&<Info label="Silinme tarihi" value={new Date(q.data.deletedAt).toLocaleString('tr-TR')}/>}
         </div>
@@ -1631,19 +2050,19 @@ function HowToListPage() {
     {
       key: 'owner' as const, title: 'Bireysel ev sahibi', icon: Home,
       description: 'Kendi taşınmazını satmak veya kiraya vermek isteyen kullanıcılar.',
-      status: 'Henüz kullanıma açık değil',
-      intro: 'Taşınmaz bilgileri, fotoğraflar ve doğrulama adımları için planlama rehberi. Bireysel ilan yayınlama henüz kullanıma açık değildir.',
-      infoTitle: 'Hazırlık için düşünülebilecek bilgiler',
-      infoItems: ['Taşınmazın türü, satılık/kiralık tercihi ve açık konumu', 'Oda, alan ve temel özellikler; açıklama metni', 'Kendi taşınmazınız için kullanmaya yetkili olduğunuz fotoğraflar', 'Mülkiyet ve kimlik doğrulamasında istenebilecek belgeler; uygulamada henüz bir yükleme adımı yok'],
-      availability: 'Mevcut backend sözleşmesinde bireysel kullanıcının ilan yayınlaması, fotoğraf yükleme veya kimlik/mülkiyet doğrulama akışı bulunmuyor.',
-      nextTitle: 'Durum · Yakında',
-      nextDescription: 'Bireysel ilan yayınlama özelliği henüz kullanıma açık değil. Şu anda yalnızca mevcut ilanları inceleyebilirsiniz.',
-      actionHref: '/ilanlar', actionLabel: 'Mevcut ilanları incele',
+      status: 'İlan verme mevcut',
+      intro: 'Kendi taşınmazınızı satılık veya kiralık olarak yayınlayabilirsiniz. Kimlik ve mülkiyet belgesi doğrulaması henüz kullanıma açık değildir.',
+      infoTitle: 'İlan formunda istenen bilgiler',
+      infoItems: ['Satılık veya kiralık tercihi ve emlak tipi', 'Başlık, açıklama ve fiyat', 'Alan, oda ve temel özellikler', 'Şehir, ilçe, mahalle, açık adres ve koordinat', 'JPEG, PNG veya WebP fotoğraflar'],
+      availability: 'Bireysel ilan oluşturma ve fotoğraf yükleme, giriş yapmış kullanıcı hesabıyla kullanılabilir. Telefon ve e-posta ilan detayında yayımlanmaz. Kimlik veya mülkiyet belgesi yükleme adımı yoktur.',
+      nextTitle: 'Sonraki adım',
+      nextDescription: 'Giriş yaptıktan sonra ilan formunu doldurup fotoğraflarınızı ekleyerek ilanı yayınlayabilirsiniz.',
+      actionHref: '/ilan-ver', actionLabel: 'İlan Ver',
       journey: [
-        { title: 'Hesap oluştur', description: 'Kullanıcı hesabı tek başına bireysel ilan yayınlama yetkisi vermez.', status: 'Hazırlık' },
-        { title: 'Taşınmaz bilgilerini hazırla', description: 'Bu sayfadaki maddeler hazırlık önerisidir; ev sahibi ilan formu bulunmuyor.', status: 'Hazırlık' },
-        { title: 'Fotoğraf ve belgeleri doğrula', description: 'Bireysel kullanıcı için yükleme veya doğrulama adımı henüz kullanıma açık değil.', status: 'Mevcut değil' },
-        { title: 'İlanı yayın sürecine gönder', description: 'Bireysel ilan gönderim rotası ve API’si henüz kullanıma açık değil.', status: 'Mevcut değil' },
+        { title: 'Hesap oluştur veya giriş yap', description: 'İlan formu yalnızca oturum açmış kullanıcı hesabına açıktır.', status: 'Mevcut' },
+        { title: 'Taşınmaz bilgilerini gir', description: 'Tür, fiyat, özellikler ve konum ilan formunda toplanır.', status: 'Mevcut' },
+        { title: 'Fotoğrafları ekle', description: 'JPEG, PNG veya WebP fotoğraflar ilanla birlikte yüklenir. Kimlik belgesi istenmez.', status: 'Mevcut' },
+        { title: 'İlanı yayınla', description: 'İlan yayında başlar ve herkese açık ilan sayfasında görünür.', status: 'Mevcut' },
       ],
     },
     {
@@ -1736,12 +2155,12 @@ function HowToListPage() {
       : { href: '/emlakci-basvuru', label: selected.key === 'office' ? 'Ofis başvurusunu aç' : 'Emlakçı başvurusuna geç', title: 'Mevcut profesyonel başvurusuna geçin', description: 'Hesabınız yoksa bu rota sizi giriş sayfasına yönlendirir. Başvuru gerçek API’ye gönderilir.' }
     : selected ? { href: selected.actionHref, label: selected.actionLabel, title: selected.nextTitle, description: selected.nextDescription } : null;
   const faqs = [
-    ['Kimler YUVA’da ilan verebilir?', 'Mevcut uygulamada ilan oluşturma, emlakçı başvurusu onaylanmış ve AGENT rolü verilmiş hesaplarla sınırlıdır. Bireysel ev sahipleri için doğrudan ilan verme akışı henüz bulunmuyor. Emlak ofisleri şirket bilgileriyle profesyonel başvuru yapabilir; ekip ve toplu ilan yönetimi mevcut değil.'],
+    ['Kimler YUVA’da ilan verebilir?', 'Bireysel kullanıcılar giriş yaptıktan sonra İlan Ver ile kendi ilanlarını yayınlayabilir. Emlak danışmanları onaylı AGENT hesabıyla panelden ilan yönetir. Ofis ekip yönetimi ve müteahhit proje yönetimi henüz yoktur.'],
     ['İlan vermek için hangi bilgiler gerekir?', 'İlan formunda başlık, satılık/kiralık türü, emlak tipi, fiyat, brüt alan, oda ve salon sayısı, açıklama, şehir, ilçe, mahalle, açık adres ve harita koordinatları istenir. Bazı ek özellikler isteğe bağlıdır.'],
     ['Fotoğraf eklemek zorunlu mu?', 'Arayüzde ilanı kaydetmek için zorunlu bir minimum fotoğraf adedi belirtilmiyor. İlan ilk kez kaydedildikten sonra JPEG, PNG veya WebP biçiminde, dosya başına en fazla 10 MB ve toplamda en çok 20 fotoğraf yüklenebilir. Sunucu tarafındaki ek kurallar API tarafından belirlenebilir.'],
     ['İlanım ne zaman yayınlanır?', 'Emlakçı başvurusu yönetici incelemesinden geçer; uygulama belirli bir inceleme veya yayın süresi vaat etmiyor. İlanın durumu ve yayınlanması gerçek API yanıtına bağlıdır.'],
     ['İlanımı daha sonra düzenleyebilir veya kaldırabilir miyim?', 'Evet. Onaylı emlakçı hesabının ilan panelinde ilanı düzenleme, durumunu güncelleme ve kaldırma işlemleri bulunur. İşlemler API’ye gönderilir; bu sayfa onlar için sahte başarı üretmez.'],
-    ['Bireysel kullanıcı ile emlak danışmanı arasındaki fark nedir?', 'Bireysel kullanıcı hesabı kayıt ve platform özelliklerine erişim sağlar; mevcut uygulamada bu hesapla ilan oluşturulamaz. Emlak danışmanı ise ayrı bir başvuru ve yönetici onayı sonrasında ilan yönetim paneline erişir.'],
+    ['Bireysel kullanıcı ile emlak danışmanı arasındaki fark nedir?', 'Bireysel kullanıcı kendi ilanını İlan Ver ekranından yayınlar; iletişim bilgisi ilanda gösterilmez. Emlak danışmanı başvuru ve onay sonrası panelden ilan yönetir ve firma iletişim bilgileri ilanda görünür.'],
   ];
 
   return <PublicLayout>
@@ -1751,7 +2170,7 @@ function HowToListPage() {
           <p className="inline-flex items-center gap-2 rounded-full border border-[#cbd8ce] bg-white/65 px-3.5 py-2 text-[11px] font-bold uppercase tracking-[.15em] text-[#38645a]"><ShieldCheck size={14}/> YUVA’da ilan verme rehberi</p>
           <h1 className="mt-5 max-w-2xl font-display text-4xl font-extrabold leading-[1.08] tracking-[-.04em] text-[#223d38] sm:text-5xl lg:text-[3.5rem]">Gayrimenkulünüzü YUVA&apos;da yayınlayın.</h1>
           <p className="mt-5 max-w-2xl text-base leading-7 text-[#5d6b64] md:text-lg">İster kendi evinizi satmak veya kiraya vermek, ister müşterilerinizin gayrimenkullerini yönetmek isteyin; size uygun ilan verme yolunu keşfedin.</p>
-          <p className="mt-5 flex items-start gap-2.5 rounded-xl border border-[#d8d9ce] bg-white/55 p-4 text-sm leading-6 text-[#4f6259]"><BadgeCheck size={18} className="mt-0.5 shrink-0 text-primary"/>Şu anda ilan oluşturma, başvurusu onaylanan emlakçı hesaplarında kullanılabilir. Bireysel ilan ve ofis ekip yönetimi akışları henüz mevcut değildir.</p>
+          <p className="mt-5 flex items-start gap-2.5 rounded-xl border border-[#d8d9ce] bg-white/55 p-4 text-sm leading-6 text-[#4f6259]"><BadgeCheck size={18} className="mt-0.5 shrink-0 text-primary"/>Bireysel kullanıcılar İlan Ver ile ilan yayınlayabilir. Emlakçılar onaylı hesaplarıyla panelden ilan yönetir. Ofis ekip yönetimi henüz mevcut değildir.</p>
           <a href="#kullanici-turu-secimi" className="mt-6 inline-flex min-h-11 items-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-bold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">Size uygun yolu bulun <ArrowRight size={16}/></a>
         </div>
         <div className="relative min-h-[300px] overflow-hidden rounded-[1.6rem] bg-[#24463f] shadow-sm sm:min-h-[390px]">
@@ -1804,10 +2223,29 @@ function HowToListPage() {
   </PublicLayout>;
 }
 
+function AccountFavoritesPage() { return <AccountLayout><FavoritesContent/></AccountLayout>; }
+function AccountProfilePage() { return <AccountLayout><ProfileContent/></AccountLayout>; }
+function LegacyAccountRedirect({ kind }: { kind: 'favorites' | 'profile' }) {
+  const { user, isLoading, isAuthenticated } = useAuth();
+  const [, go] = useLocation();
+  const target = kind === 'favorites' ? '/hesabim/favoriler' : '/hesabim/bilgiler';
+  useEffect(() => {
+    if (isLoading) return;
+    if (!isAuthenticated || !user) {
+      go(`/giris?returnTo=${encodeURIComponent(target)}`, { replace: true });
+      return;
+    }
+    if (user.role === 'USER') go(target, { replace: true });
+  }, [isLoading, isAuthenticated, user, go, target]);
+  if (isLoading || !isAuthenticated || !user || user.role === 'USER') return null;
+  return kind === 'favorites'
+    ? <PublicLayout><div className="mx-auto max-w-[1440px] px-5 py-12 lg:px-10"><FavoritesContent/></div></PublicLayout>
+    : <PublicLayout><div className="mx-auto max-w-4xl px-5 py-12"><ProfileContent/></div></PublicLayout>;
+}
 function NotFoundPage() { return <PublicLayout><div className="mx-auto flex max-w-3xl flex-col items-center px-5 py-24 text-center"><span className="font-display text-7xl font-extrabold text-primary">404</span><h1 className="mt-4 font-display text-3xl font-bold">Bu sayfayı bulamadık</h1><p className="mt-2 text-muted-foreground">Adres değişmiş olabilir. İlanlara dönüp aramanıza devam edebilirsiniz.</p><Link href="/ilanlar" className="mt-6 rounded-xl bg-primary px-5 py-3 font-bold text-white">İlanları keşfet</Link></div></PublicLayout>; }
 function Routed() { const [location]=useLocation(); const search=useSearch(); return <ErrorBoundary resetKey={`${location}${search}`}><Switch>
-  <Route path="/" component={HomePage}/><Route path="/ilanlar">{()=> <ListingPage key={`${location}${search}`}/>}</Route><Route path="/ilan/:id" component={PropertyDetailPage}/><Route path="/emlakci/:slug" component={AgentPage}/><Route path="/nasil-ilan-verilir" component={HowToListPage}/>
-  <Route path="/giris">{()=> <AuthPage key="login" mode="login"/>}</Route><Route path="/kayit">{()=> <AuthPage key="register" mode="register"/>}</Route><Route path="/profil">{()=> <RequireAuth><ProfilePage/></RequireAuth>}</Route><Route path="/favoriler">{()=> <RequireAuth><FavoritesPage/></RequireAuth>}</Route><Route path="/emlakci-basvuru">{()=> <RequireRole roles={['USER']}><ApplicationPage/></RequireRole>}</Route>
+  <Route path="/" component={HomePage}/><Route path="/ilanlar">{()=> <ListingPage key={`${location}${search}`}/>}</Route><Route path="/ilan-ver">{()=> <RequireAuth><UserListingPage/></RequireAuth>}</Route><Route path="/ilan/:id" component={PropertyDetailPage}/><Route path="/emlakci/:slug" component={AgentPage}/><Route path="/nasil-ilan-verilir" component={HowToListPage}/>
+  <Route path="/giris">{()=> <AuthPage key="login" mode="login"/>}</Route><Route path="/kayit">{()=> <AuthPage key="register" mode="register"/>}</Route><Route path="/profil">{()=> <LegacyAccountRedirect kind="profile"/>}</Route><Route path="/favoriler">{()=> <LegacyAccountRedirect kind="favorites"/>}</Route><Route path="/hesabim/favoriler">{()=> <RequireAuth><UserAccountGate><AccountFavoritesPage/></UserAccountGate></RequireAuth>}</Route><Route path="/hesabim/bilgiler">{()=> <RequireAuth><UserAccountGate><AccountProfilePage/></UserAccountGate></RequireAuth>}</Route><Route path="/hesabim/ilanlar/:id/duzenle">{()=> <RequireAuth><UserAccountGate><PropertyEditor mode="INDIVIDUAL" edit/></UserAccountGate></RequireAuth>}</Route><Route path="/hesabim/ilanlar">{()=> <RequireAuth><UserAccountGate><MyListingsPage/></UserAccountGate></RequireAuth>}</Route><Route path="/hesabim">{()=> <RequireAuth><UserAccountGate><AccountDashboardPage/></UserAccountGate></RequireAuth>}</Route><Route path="/emlakci-basvuru">{()=> <RequireRole roles={['USER']}><ApplicationPage/></RequireRole>}</Route>
   <Route path="/panel">{()=> <RequireRole roles={['AGENT']}><AgentHome/></RequireRole>}</Route><Route path="/panel/ilanlar">{()=> <RequireRole roles={['AGENT']}><AgentPropertiesPage/></RequireRole>}</Route><Route path="/panel/ilanlar/yeni">{()=> <RequireRole roles={['AGENT']}><PropertyEditor/></RequireRole>}</Route><Route path="/panel/ilanlar/:id/duzenle">{()=> <RequireRole roles={['AGENT']}><PropertyEditor edit/></RequireRole>}</Route><Route path="/panel/emlakci-profili">{()=> <RequireRole roles={['AGENT']}><AgentProfilePage/></RequireRole>}</Route>
   <Route path="/admin">{()=> <RequireRole roles={['ADMIN']}><AdminHome/></RequireRole>}</Route><Route path="/admin/kullanicilar">{()=> <RequireRole roles={['ADMIN']}><AdminUsersPage/></RequireRole>}</Route><Route path="/admin/kullanicilar/:id">{()=> <RequireRole roles={['ADMIN']}><AdminUserDetailPage/></RequireRole>}</Route><Route path="/admin/basvurular">{()=> <RequireRole roles={['ADMIN']}><AdminApplicationsPage/></RequireRole>}</Route><Route path="/admin/basvurular/:id">{()=> <RequireRole roles={['ADMIN']}><AdminApplicationDetailPage/></RequireRole>}</Route><Route path="/admin/emlakcilar">{()=> <RequireRole roles={['ADMIN']}><AdminAgentsPage/></RequireRole>}</Route><Route path="/admin/emlakcilar/:id">{()=> <RequireRole roles={['ADMIN']}><AdminAgentDetailPage/></RequireRole>}</Route><Route path="/admin/ilanlar">{()=> <RequireRole roles={['ADMIN']}><AdminPropertiesPage/></RequireRole>}</Route><Route path="/admin/ilanlar/:id">{()=> <RequireRole roles={['ADMIN']}><AdminPropertyDetailPage/></RequireRole>}</Route><Route path="/admin/audit-logs">{()=> <RequireRole roles={['ADMIN']}><AdminAuditPage/></RequireRole>}</Route>
   <Route component={NotFoundPage}/>

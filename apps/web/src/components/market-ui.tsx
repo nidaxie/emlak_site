@@ -141,7 +141,9 @@ export function PropertyCardView({
               <Ruler size={14} />
               {area(property.grossAreaM2)} m²
             </span>
-            <span className="ml-auto truncate">{property.agent.companyName}</span>
+            <span className="ml-auto truncate">
+              {property.agent?.companyName ?? property.sellerName}
+            </span>
           </div>
         </div>
       </Link>

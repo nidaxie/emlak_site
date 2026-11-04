@@ -11,6 +11,7 @@ import { Prisma, PrismaClient } from '../../generated/prisma/client';
 import {
   AuditAction,
   Currency,
+  PropertySellerType,
   PropertyStatus,
   Role,
 } from '../../generated/prisma/enums';
@@ -27,6 +28,7 @@ import {
   assertFloors,
   assertRangeOrder,
   canTransition,
+  canTransitionIndividual,
   formatArea,
   formatCoordinate,
   formatMoney,
@@ -50,6 +52,7 @@ const locationSelect = {
 
 const managedSelect = {
   id: true,
+  sellerType: true,
   agentProfileId: true,
   title: true,
   description: true,
@@ -82,6 +85,7 @@ const managedSelect = {
 
 const publicSelect = {
   id: true,
+  sellerType: true,
   title: true,
   description: true,
   listingType: true,
@@ -137,10 +141,19 @@ const gallerySelect = {
 export const publicPropertyWhere = {
   status: PropertyStatus.ACTIVE,
   deletedAt: null,
-  agentProfile: {
-    isActive: true,
-    user: { isActive: true },
-  },
+  OR: [
+    {
+      sellerType: PropertySellerType.AGENT,
+      agentProfile: {
+        isActive: true,
+        user: { isActive: true },
+      },
+    },
+    {
+      sellerType: PropertySellerType.INDIVIDUAL,
+      ownerUser: { isActive: true },
+    },
+  ],
 } satisfies Prisma.PropertyWhereInput;
 
 @Injectable()
@@ -161,6 +174,8 @@ export class PropertiesService {
       return tx.property.create({
         data: {
           ...data,
+          sellerType: PropertySellerType.AGENT,
+          ownerUserId: null,
           agentProfileId,
           status: PropertyStatus.ACTIVE,
           currency: Currency.TRY,
@@ -227,65 +242,10 @@ export class PropertiesService {
   }
 
   async update(userId: string, id: string, dto: UpdatePropertyDto) {
-    const data = buildPatch(dto);
-    const locationIds = [dto.cityId, dto.districtId, dto.neighborhoodId];
-    const providedLocations = locationIds.filter(
-      (value) => value !== undefined,
-    );
-
-    if (providedLocations.length > 0 && providedLocations.length < 3) {
-      throw new BadRequestException('Location fields must be updated together');
-    }
-
-    if (Object.keys(data).length === 0 && providedLocations.length === 0) {
-      throw new BadRequestException('No fields to update');
-    }
-
-    const updated = await this.prisma.$transaction(async (tx) => {
+    return this.patchOwned(userId, id, dto, async (tx) => {
       const profileId = await this.lockProfile(tx, userId, false);
       this.assertOwner(await this.lockProperty(tx, id), profileId);
-
-      if (dto.cityId && dto.districtId && dto.neighborhoodId) {
-        await assertLocation(
-          tx,
-          dto.cityId,
-          dto.districtId,
-          dto.neighborhoodId,
-        );
-        Object.assign(data, {
-          cityId: dto.cityId,
-          districtId: dto.districtId,
-          neighborhoodId: dto.neighborhoodId,
-        });
-      }
-      const current = await tx.property.findUniqueOrThrow({
-        where: { id },
-        select: {
-          grossAreaM2: true,
-          netAreaM2: true,
-          floor: true,
-          totalFloors: true,
-        },
-      });
-      const grossAreaM2 = data.grossAreaM2 ?? current.grossAreaM2;
-      const netAreaM2 =
-        data.netAreaM2 === undefined ? current.netAreaM2 : data.netAreaM2;
-      const floor = data.floor === undefined ? current.floor : data.floor;
-      const totalFloors =
-        data.totalFloors === undefined ? current.totalFloors : data.totalFloors;
-      assertAreaPair(grossAreaM2, netAreaM2);
-      assertFloors(floor, totalFloors);
-
-      return tx.property.update({
-        where: { id },
-        data,
-        select: managedSelect,
-      });
     });
-
-    this.logger.log(`property updated propertyId=${id} userId=${userId}`);
-
-    return presentManaged(updated);
   }
 
   async changeStatus(userId: string, id: string, status: PropertyStatus) {
@@ -327,6 +287,148 @@ export class PropertiesService {
     });
 
     this.logger.log(`property deleted propertyId=${id} userId=${userId}`);
+
+    return deleted;
+  }
+
+  async createForUser(userId: string, dto: CreatePropertyDto) {
+    const data = propertyData(dto);
+    const created = await this.prisma.$transaction(async (tx) => {
+      await this.lockIndividualUser(tx, userId);
+      await assertLocation(tx, dto.cityId, dto.districtId, dto.neighborhoodId);
+
+      return tx.property.create({
+        data: {
+          ...data,
+          sellerType: PropertySellerType.INDIVIDUAL,
+          ownerUserId: userId,
+          agentProfileId: null,
+          status: PropertyStatus.ACTIVE,
+          currency: Currency.TRY,
+        },
+        select: managedSelect,
+      });
+    });
+
+    this.logger.log(
+      `individual property created propertyId=${created.id} userId=${userId}`,
+    );
+
+    return presentManaged(created);
+  }
+
+  async listMineForUser(userId: string, query: ListMyPropertiesQueryDto) {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const where = {
+      sellerType: PropertySellerType.INDIVIDUAL,
+      ownerUserId: userId,
+      deletedAt: null,
+      ...(query.status ? { status: query.status } : {}),
+    };
+    const [items, total] = await Promise.all([
+      this.prisma.property.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: (page - 1) * limit,
+        take: limit,
+        select: managedSelect,
+      }),
+      this.prisma.property.count({ where }),
+    ]);
+
+    return {
+      items: items.map((item) => presentManaged(item)),
+      page,
+      limit,
+      total,
+    };
+  }
+
+  async getMineForUser(userId: string, id: string) {
+    const property = await this.prisma.property.findFirst({
+      where: {
+        id,
+        sellerType: PropertySellerType.INDIVIDUAL,
+        ownerUserId: userId,
+        deletedAt: null,
+      },
+      select: { ...managedSelect, images: gallerySelect },
+    });
+
+    if (!property) {
+      throw new NotFoundException('Property not found');
+    }
+
+    return {
+      ...presentManaged(property),
+      images: property.images.map((image) => ({
+        id: image.id,
+        url: publicFileUrl(image.fileId)!,
+        sortOrder: image.sortOrder,
+        isCover: image.isCover,
+      })),
+    };
+  }
+
+  async updateForUser(userId: string, id: string, dto: UpdatePropertyDto) {
+    return this.patchOwned(userId, id, dto, async (tx) => {
+      await this.lockIndividualUser(tx, userId);
+      this.assertIndividualOwner(
+        await this.lockIndividualProperty(tx, id),
+        userId,
+      );
+    });
+  }
+
+  async changeStatusForUser(
+    userId: string,
+    id: string,
+    status: PropertyStatus,
+  ) {
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await this.lockIndividualUser(tx, userId);
+      const current = this.assertIndividualOwner(
+        await this.lockIndividualProperty(tx, id),
+        userId,
+      );
+
+      if (!canTransitionIndividual(current.status, status)) {
+        throw new ConflictException('Invalid status transition');
+      }
+
+      return tx.property.update({
+        where: { id },
+        data: { status },
+        select: managedSelect,
+      });
+    });
+
+    this.logger.log(
+      `individual property status propertyId=${id} userId=${userId} status=${status}`,
+    );
+
+    return presentManaged(updated);
+  }
+
+  async removeMineForUser(userId: string, id: string) {
+    const deleted = await this.prisma.$transaction(async (tx) => {
+      await this.lockIndividualUser(tx, userId);
+      this.assertIndividualOwner(
+        await this.lockIndividualProperty(tx, id),
+        userId,
+      );
+
+      return tx.property.update({
+        where: { id },
+        data: { deletedAt: new Date() },
+        select: { id: true, deletedAt: true },
+      });
+    });
+
+    this.logger.log(
+      `individual property deleted propertyId=${id} userId=${userId}`,
+    );
 
     return deleted;
   }
@@ -491,13 +593,16 @@ export class PropertiesService {
               user: { select: { id: true, isActive: true, role: true } },
             },
           },
+          ownerUser: {
+            select: { id: true, role: true, isActive: true },
+          },
         },
       }),
       this.prisma.property.count({ where }),
     ]);
 
     return {
-      items: items.map((item) => presentAdmin(item)),
+      items: items.map((item) => presentAdmin(item, false)),
       page,
       limit,
       total,
@@ -530,6 +635,9 @@ export class PropertiesService {
             },
           },
         },
+        ownerUser: {
+          select: { id: true, email: true, role: true, isActive: true },
+        },
       },
     });
 
@@ -538,7 +646,7 @@ export class PropertiesService {
     }
 
     return {
-      ...presentAdmin(property),
+      ...presentAdmin(property, true),
       images: property.images.map((image) => ({
         id: image.id,
         url: publicFileUrl(image.fileId)!,
@@ -610,6 +718,72 @@ export class PropertiesService {
     return { id: deleted.id, deletedAt: deleted.deletedAt };
   }
 
+  private async patchOwned(
+    userId: string,
+    id: string,
+    dto: UpdatePropertyDto,
+    authorize: (tx: Tx) => Promise<void>,
+  ) {
+    const data = buildPatch(dto);
+    const locationIds = [dto.cityId, dto.districtId, dto.neighborhoodId];
+    const providedLocations = locationIds.filter(
+      (value) => value !== undefined,
+    );
+
+    if (providedLocations.length > 0 && providedLocations.length < 3) {
+      throw new BadRequestException('Location fields must be updated together');
+    }
+
+    if (Object.keys(data).length === 0 && providedLocations.length === 0) {
+      throw new BadRequestException('No fields to update');
+    }
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await authorize(tx);
+
+      if (dto.cityId && dto.districtId && dto.neighborhoodId) {
+        await assertLocation(
+          tx,
+          dto.cityId,
+          dto.districtId,
+          dto.neighborhoodId,
+        );
+        Object.assign(data, {
+          cityId: dto.cityId,
+          districtId: dto.districtId,
+          neighborhoodId: dto.neighborhoodId,
+        });
+      }
+      const current = await tx.property.findUniqueOrThrow({
+        where: { id },
+        select: {
+          grossAreaM2: true,
+          netAreaM2: true,
+          floor: true,
+          totalFloors: true,
+        },
+      });
+      const grossAreaM2 = data.grossAreaM2 ?? current.grossAreaM2;
+      const netAreaM2 =
+        data.netAreaM2 === undefined ? current.netAreaM2 : data.netAreaM2;
+      const floor = data.floor === undefined ? current.floor : data.floor;
+      const totalFloors =
+        data.totalFloors === undefined ? current.totalFloors : data.totalFloors;
+      assertAreaPair(grossAreaM2, netAreaM2);
+      assertFloors(floor, totalFloors);
+
+      return tx.property.update({
+        where: { id },
+        data,
+        select: managedSelect,
+      });
+    });
+
+    this.logger.log(`property updated propertyId=${id} userId=${userId}`);
+
+    return presentManaged(updated);
+  }
+
   private async profileId(userId: string) {
     const profile = await this.prisma.agentProfile.findUnique({
       where: { userId },
@@ -660,6 +834,70 @@ export class PropertiesService {
     }
 
     return row.id;
+  }
+
+  private async lockIndividualUser(tx: Tx, userId: string) {
+    const rows = await tx.$queryRaw<
+      Array<{ id: string; userActive: boolean; role: string }>
+    >`
+      SELECT id, "isActive" AS "userActive", role::text AS role
+      FROM users
+      WHERE id = ${userId}::uuid
+      FOR UPDATE
+    `;
+    const row = rows[0];
+
+    if (!row || row.role !== Role.USER) {
+      throw new ForbiddenException('Forbidden');
+    }
+
+    if (!row.userActive) {
+      throw new UnauthorizedException('Unauthorized');
+    }
+  }
+
+  private async lockIndividualProperty(tx: Tx, id: string) {
+    const rows = await tx.$queryRaw<
+      Array<{
+        id: string;
+        status: PropertyStatus;
+        sellerType: string;
+        ownerUserId: string | null;
+        deletedAt: Date | null;
+      }>
+    >`
+      SELECT id,
+             status::text AS status,
+             "sellerType"::text AS "sellerType",
+             "ownerUserId",
+             "deletedAt"
+      FROM properties
+      WHERE id = ${id}::uuid
+      FOR UPDATE
+    `;
+
+    return rows[0] ?? null;
+  }
+
+  private assertIndividualOwner(
+    row: {
+      status: PropertyStatus;
+      sellerType: string;
+      ownerUserId: string | null;
+      deletedAt: Date | null;
+    } | null,
+    userId: string,
+  ) {
+    if (
+      !row ||
+      row.deletedAt !== null ||
+      row.sellerType !== PropertySellerType.INDIVIDUAL ||
+      row.ownerUserId !== userId
+    ) {
+      throw new NotFoundException('Property not found');
+    }
+
+    return row;
   }
 
   private async lockProperty(tx: Tx, id: string) {
@@ -838,7 +1076,8 @@ type Located = {
 function presentManaged(
   row: Located & {
     id: string;
-    agentProfileId: string;
+    sellerType: string;
+    agentProfileId: string | null;
     title: string;
     description: string;
     listingType: string;
@@ -869,6 +1108,7 @@ function presentManaged(
 ) {
   return {
     ...presentFields(row),
+    sellerType: row.sellerType,
     agentProfileId: row.agentProfileId,
     updatedAt: row.updatedAt,
     deletedAt: row.deletedAt,
@@ -878,6 +1118,7 @@ function presentManaged(
 function presentPublic(
   row: Located & {
     id: string;
+    sellerType: PropertySellerType;
     title: string;
     description: string;
     listingType: string;
@@ -913,20 +1154,30 @@ function presentPublic(
       companyName: string;
       phone: string;
       logoFileId: string | null;
-    };
+    } | null;
   },
   detail: boolean,
   isFavorite: boolean,
 ) {
   const images = row.images ?? [];
   const cover = images.find((image) => image.isCover) ?? images[0];
+  const individual =
+    row.sellerType === PropertySellerType.INDIVIDUAL || !row.agentProfile;
+  const agent = row.agentProfile;
 
   return {
     ...presentFields(row),
+    sellerType: individual
+      ? PropertySellerType.INDIVIDUAL
+      : PropertySellerType.AGENT,
+    sellerName: individual ? 'Bireysel' : agent!.companyName,
     coverImageUrl: publicFileUrl(cover?.fileId),
     isFavorite,
     ...(detail
       ? {
+          sellerDisplayName: individual
+            ? 'Bireysel İlan Sahibi'
+            : agent!.companyName,
           images: images.map((image) => ({
             id: image.id,
             url: publicFileUrl(image.fileId),
@@ -935,24 +1186,27 @@ function presentPublic(
           })),
         }
       : {}),
-    agent: detail
-      ? {
-          slug: row.agentProfile.slug,
-          companyName: row.agentProfile.companyName,
-          phone: row.agentProfile.phone,
-          logoUrl: publicFileUrl(row.agentProfile.logoFileId),
-        }
-      : {
-          slug: row.agentProfile.slug,
-          companyName: row.agentProfile.companyName,
-        },
+    agent: individual
+      ? null
+      : detail
+        ? {
+            slug: agent!.slug,
+            companyName: agent!.companyName,
+            phone: agent!.phone,
+            logoUrl: publicFileUrl(agent!.logoFileId),
+          }
+        : {
+            slug: agent!.slug,
+            companyName: agent!.companyName,
+          },
   };
 }
 
 function presentAdmin(
   row: Located & {
     id: string;
-    agentProfileId: string;
+    sellerType: string;
+    agentProfileId: string | null;
     title: string;
     description: string;
     listingType: string;
@@ -989,12 +1243,29 @@ function presentAdmin(
       city?: string;
       district?: string;
       user?: { id: string; email?: string; role: string; isActive: boolean };
-    };
+    } | null;
+    ownerUser: {
+      id: string;
+      role: string;
+      isActive: boolean;
+      email?: string;
+    } | null;
   },
+  detail: boolean,
 ) {
+  const owner = row.ownerUser;
+
   return {
     ...presentManaged(row),
     agent: row.agentProfile,
+    owner: owner
+      ? {
+          id: owner.id,
+          role: owner.role,
+          isActive: owner.isActive,
+          ...(detail && owner.email ? { email: owner.email } : {}),
+        }
+      : null,
   };
 }
 

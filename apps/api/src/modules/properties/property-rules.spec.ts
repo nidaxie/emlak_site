@@ -1,6 +1,7 @@
 import { PropertyStatus } from '../../generated/prisma/enums';
 import {
   canTransition,
+  canTransitionIndividual,
   formatCoordinate,
   formatMoney,
   normalizeDecimal,
@@ -45,6 +46,21 @@ describe('property rules', () => {
     expect(canTransition(PropertyStatus.INACTIVE, PropertyStatus.SOLD)).toBe(
       false,
     );
+    expect(
+      canTransitionIndividual(PropertyStatus.ACTIVE, PropertyStatus.INACTIVE),
+    ).toBe(true);
+    expect(
+      canTransitionIndividual(PropertyStatus.INACTIVE, PropertyStatus.ACTIVE),
+    ).toBe(true);
+    expect(
+      canTransitionIndividual(PropertyStatus.ACTIVE, PropertyStatus.ACTIVE),
+    ).toBe(false);
+    expect(
+      canTransitionIndividual(PropertyStatus.ACTIVE, PropertyStatus.SOLD),
+    ).toBe(false);
+    expect(
+      canTransitionIndividual(PropertyStatus.ACTIVE, PropertyStatus.RENTED),
+    ).toBe(false);
     expect(canTransition(PropertyStatus.ACTIVE, PropertyStatus.ACTIVE)).toBe(
       false,
     );

@@ -480,6 +480,9 @@ export const mockProperties: PropertyDetail[] = listingSeeds.map((seed) => {
     createdAt: daysAgo(seed.daysAgo),
     coverImageUrl,
     isFavorite: false,
+    sellerType: 'AGENT',
+    sellerName: agent.companyName,
+    sellerDisplayName: agent.companyName,
     agent: {
       slug: agent.slug,
       companyName: agent.companyName,
@@ -504,9 +507,14 @@ const optionalNumber = (value: string | number | undefined) => {
   return Number.isFinite(parsed) ? parsed : undefined;
 };
 
-const cardFromDetail = ({ images: _images, agent, ...property }: PropertyDetail) => ({
+const cardFromDetail = ({
+  images: _images,
+  agent,
+  sellerDisplayName: _sellerDisplayName,
+  ...property
+}: PropertyDetail) => ({
   ...property,
-  agent: { slug: agent.slug, companyName: agent.companyName },
+  agent: agent ? { slug: agent.slug, companyName: agent.companyName } : null,
 });
 
 export function listMockProperties(
@@ -534,7 +542,7 @@ export function listMockProperties(
   const maxArea = optionalNumber(query.maxArea);
 
   const filtered = mockProperties.filter((property) =>
-    (!agentSlug || property.agent.slug === agentSlug) &&
+    (!agentSlug || property.agent?.slug === agentSlug) &&
     (!query.listingType || property.listingType === query.listingType) &&
     (!query.propertyType || property.propertyType === query.propertyType) &&
     matchesOptionalText(property.city, query.city) &&

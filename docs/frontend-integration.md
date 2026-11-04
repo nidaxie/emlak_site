@@ -339,7 +339,7 @@ GET /locations/cities
 
 ## 4.2 İlan kartı
 
-`PropertyCard`, public liste, emlakçı ilan listesi ve favori listesinde aynıdır. Liste öğesinde `images` yoktur. `agent` yalnız `slug` ve `companyName` taşır.
+`PropertyCard`, public liste, emlakçı ilan listesi ve favori listesinde aynıdır. Liste öğesinde `images` ve `sellerDisplayName` yoktur. `sellerType` `AGENT` veya `INDIVIDUAL` olur. `sellerName`, kartta gösterilecek güvenli addır: emlakçı ilanında firma adı, bireysel ilanda `Bireysel`. AGENT kartında `agent` yalnız `slug` ve `companyName` taşır. INDIVIDUAL kartında `agent` `null` olur. Kişisel ad, e-posta ve telefon liste kartına yazılmaz.
 
 ```json
 {
@@ -376,6 +376,8 @@ GET /locations/cities
   "createdAt": "2026-10-23T08:00:00.000Z",
   "coverImageUrl": "/api/v1/files/44444444-4444-4444-8444-444444444444",
   "isFavorite": false,
+  "sellerType": "AGENT",
+  "sellerName": "Örnek Emlak",
   "agent": {
     "slug": "ornek-emlak",
     "companyName": "Örnek Emlak"
@@ -412,7 +414,7 @@ Token yoksa çağrı açıktır. Token varsa ve geçerliyse `isFavorite` dolar. 
 
 Şehir filtresi ID değil addır. `agentSlug` diye bir parametre yoktur. Gönderilirse 400 döner. Aralık tersyse 400 `Invalid price range` veya `Invalid area range` döner.
 
-Görünen ilanlar `ACTIVE`, silinmemiş, profili aktif ve sahibi aktif olanlardır.
+Görünen ilanlar `ACTIVE` ve silinmemiş olmalıdır. AGENT ilanında profil ve hesap aktiftir. INDIVIDUAL ilanında sahip hesabı (`User.isActive`) aktiftir. Pasif hesap bireysel ilanı public listeden ve detaydan gizler.
 
 ## 4.4 Sorting
 
@@ -430,7 +432,9 @@ price_desc
 
 `GET /properties/:id`
 
-Liste kartının bütün alanlarını döner. Ek olarak `images` ve daha geniş `agent` vardır. `images` `sortOrder` sırasındadır. Silinmiş fotoğraf gelmez.
+Liste kartının bütün alanlarını döner. Ek olarak `images`, `sellerDisplayName` ve daha geniş `agent` vardır. `images` `sortOrder` sırasındadır. Silinmiş fotoğraf gelmez. AGENT detayında `sellerDisplayName` firma adıdır ve `agent` `slug`, `companyName`, `phone`, `logoUrl` taşır. INDIVIDUAL detayında `sellerType` `INDIVIDUAL`, `sellerDisplayName` `Bireysel İlan Sahibi` ve `agent` `null` olur. Bireysel ilanda e-posta, telefon ve profil verisi yoktur.
+
+`INDIVIDUAL_CONTACT_PUBLICATION = NOT_IMPLEMENTED`
 
 ```json
 {
@@ -442,6 +446,7 @@ Liste kartının bütün alanlarını döner. Ek olarak `images` ve daha geniş 
       "isCover": true
     }
   ],
+  "sellerDisplayName": "Örnek Emlak",
   "agent": {
     "slug": "ornek-emlak",
     "companyName": "Örnek Emlak",
@@ -644,7 +649,7 @@ DELETE /properties/:id
 
 Hepsi `AGENT` ve Bearer ister. Başka emlakçının ilanı 404 `Property not found` döner.
 
-`GET /properties/me` query'si `status`, `page` ve `limit` dir. `sort` yoktur. Silinmiş ilanlar gelmez. Yanıt `PropertyRecord` sayfasıdır. Bu kayıtta `coverImageUrl` ve `isFavorite` yoktur. `agentProfileId`, `updatedAt` ve `deletedAt` vardır.
+`GET /properties/me` query'si `status`, `page` ve `limit` dir. `sort` yoktur. Silinmiş ilanlar gelmez. Yanıt `PropertyRecord` sayfasıdır. Bu kayıtta `coverImageUrl` ve `isFavorite` yoktur. `sellerType` `AGENT` olur. `agentProfileId`, `updatedAt` ve `deletedAt` vardır. Bu endpoint yalnız AGENT ilanlarını döner. Bireysel ilan ID'si verildiğinde 404 `Property not found` döner.
 
 `GET /properties/me/:id` yanıtı `OwnerPropertyDetail` (`PropertyRecord` + `sortOrder` sırasındaki canlı `images: PropertyImage[]`) döner. Silinmiş fotoğraflar dahil edilmez.
 
@@ -698,6 +703,44 @@ Güncelleme aynı alanların bir alt kümesidir. Hiç alan yoksa 400 `No fields 
 ```
 
 Geçerli geçişler bölüm 3.9'daki listedir. Geçersiz geçiş 409 `Invalid status transition` döner. Yanıt güncel `PropertyRecord` olur.
+
+## 8.3 Bireysel ilan yönetimi
+
+Bu endpointler yalnız `USER` rolüne açıktır. Oturum yoksa 401 döner. `AGENT` ve `ADMIN` 403 `Forbidden` döner. Başka kullanıcının ilanı, silinmiş ilan ve AGENT ilanı 404 `Property not found` döner. 403 ile sahiplik sızdırılmaz.
+
+```text
+POST   /user-properties
+GET    /user-properties/me
+GET    /user-properties/me/:id
+PATCH  /user-properties/:id
+PATCH  /user-properties/:id/status
+DELETE /user-properties/:id
+```
+
+`POST` gövdesi `CreatePropertyRequest` ile aynıdır. `sellerType`, `ownerUserId`, `agentProfileId`, `status`, `currency`, `createdAt`, `updatedAt` ve `deletedAt` gönderilirse 400 döner. Sunucu ilanı `sellerType = INDIVIDUAL`, `ownerUserId = current user`, `agentProfileId = null`, `status = ACTIVE`, `currency = TRY` olarak yazar. Yanıt `UserPropertyRecord` olur. `ownerUserId` yanıtta yoktur.
+
+`GET /user-properties/me` aynı `page` / `limit` sözleşmesini kullanır: `{ items, page, limit, total }`. Yalnız current user'ın silinmemiş INDIVIDUAL ilanları gelir.
+
+`GET /user-properties/me/:id` `UserPropertyDetail` döner. `cityId`, `districtId`, `neighborhoodId` ve canlı `images` (`id`, `url`, `sortOrder`, `isCover`, `sortOrder` artan) vardır. Silinmiş fotoğraf gelmez.
+
+`PATCH /user-properties/:id` `UpdatePropertyRequest` kullanır. Sahiplik, durum, para birimi ve `deletedAt` bu gövdeden değişmez. Durum ayrı endpointtir.
+
+`PATCH /user-properties/:id/status` yalnız `ACTIVE` ve `INACTIVE` kabul eder. Başka durum 400 döner. İzinli geçişler `ACTIVE ↔ INACTIVE` dir. Aynı duruma geçiş 409 `Invalid status transition` döner. `SOLD` ve `RENTED` bu fazda USER lifecycle'ında yoktur.
+
+`DELETE` soft delete yapar ve `{ "id", "deletedAt" }` döner. Sonrasında owner detail ve public detail 404 olur.
+
+Fotoğraflar:
+
+```text
+POST   /user-properties/:id/images
+PATCH  /user-properties/:id/images/order
+PATCH  /user-properties/:id/images/:imageId/cover
+DELETE /user-properties/:id/images/:imageId
+```
+
+Kurallar agent fotoğraf endpointleriyle aynıdır: JPEG, PNG, WebP, 10 MB, magic byte, en fazla 20, ilk fotoğraf kapak, kapak invariantı, soft delete ve disk temizliği. Dosya yolu `/api/v1/files/:id` olarak kalır. Başka kullanıcının fotoğrafı 404 döner.
+
+Lokasyon alanları UUID'dir. Şehir, ilçe ve mahalle hiyerarşisi agent create/update ile aynı kontrolden geçer. Decimal alanlar string kalır.
 
 # 9. Property images
 
@@ -861,9 +904,9 @@ DELETE /admin/properties/:id
 
 Liste query'si `status`, `listingType`, `city` (adın tam eşleşmesi), `deleted` (`"true"` / `"false"`, varsayılan silinmemişler), `page`, `limit`.
 
-Liste öğesi `PropertyRecord` artı kısa `agent` taşır: `id`, `slug`, `companyName`, `isActive`, `user: { id, role, isActive }`.
+Liste öğesi `PropertyRecord` artı `sellerType` taşır. AGENT ilanında kısa `agent` korunur: `id`, `slug`, `companyName`, `isActive`, `user: { id, role, isActive }`. `owner` bu kayıtta `null` olur. INDIVIDUAL ilanında `agent` `null` olur ve `owner` `{ id, role, isActive }` döner.
 
-Detay `agent` daha geniştir (`phone`, `email`, `city`, `district`, `user.email` eklenir) ve silinmemiş canlı fotoğrafları `sortOrder` sırasında `images: PropertyImage[]` olarak taşır.
+Detayda AGENT `agent` daha geniştir (`phone`, `email`, `city`, `district`, `user.email` eklenir). INDIVIDUAL detayında `owner` `{ id, email, role, isActive }` olur. Şifre ve parola özeti yoktur. Silinmemiş canlı fotoğraflar `sortOrder` sırasında `images: PropertyImage[]` olarak taşınır. Pasife alma ve silme iki satıcı tipinde de çalışır.
 
 Pasife alma ve silme `{ "reason" }` ister. Pasife alma `PropertyRecord` döner. Silme `{ "id", "deletedAt" }` döner. Fotoğraf silme `{ "id" }` döner.
 

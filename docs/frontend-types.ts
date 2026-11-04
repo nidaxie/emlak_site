@@ -20,6 +20,8 @@ export type HeatingType =
 
 export type Currency = 'TRY';
 
+export type PropertySellerType = 'INDIVIDUAL' | 'AGENT';
+
 export type FileVisibility = 'PUBLIC' | 'PRIVATE';
 
 export type FileCategory =
@@ -177,12 +179,15 @@ export interface PropertyCard {
   createdAt: string;
   coverImageUrl: string | null;
   isFavorite: boolean;
-  agent: AgentCardSummary;
+  sellerType: PropertySellerType;
+  sellerName: string;
+  agent: AgentCardSummary | null;
 }
 
 export interface PropertyDetail extends Omit<PropertyCard, 'agent'> {
   images: PropertyImage[];
-  agent: AgentDetailSummary;
+  sellerDisplayName: string;
+  agent: AgentDetailSummary | null;
 }
 
 export interface PublicPropertyListQuery extends PageQuery {
@@ -215,7 +220,8 @@ export interface FavoriteRemovalResponse {
 
 export interface PropertyRecord {
   id: string;
-  agentProfileId: string;
+  sellerType: PropertySellerType;
+  agentProfileId: string | null;
   title: string;
   description: string;
   listingType: ListingType;
@@ -253,6 +259,20 @@ export interface PropertyRecord {
 
 export interface OwnerPropertyDetail extends PropertyRecord {
   images: PropertyImage[];
+}
+
+export interface UserPropertyRecord
+  extends Omit<PropertyRecord, 'sellerType' | 'agentProfileId'> {
+  sellerType: 'INDIVIDUAL';
+  agentProfileId: null;
+}
+
+export interface UserPropertyDetail extends UserPropertyRecord {
+  images: PropertyImage[];
+}
+
+export interface UpdateUserPropertyStatusRequest {
+  status: 'ACTIVE' | 'INACTIVE';
 }
 
 export interface CreatePropertyRequest {
@@ -562,12 +582,24 @@ export interface AdminPropertyDetailAgent {
   };
 }
 
+export interface AdminPropertyOwnerSummary {
+  id: string;
+  role: Role;
+  isActive: boolean;
+}
+
+export interface AdminPropertyOwnerDetail extends AdminPropertyOwnerSummary {
+  email: string;
+}
+
 export interface AdminProperty extends PropertyRecord {
-  agent: AdminPropertyListAgent;
+  agent: AdminPropertyListAgent | null;
+  owner: AdminPropertyOwnerSummary | null;
 }
 
 export interface AdminPropertyDetail extends PropertyRecord {
-  agent: AdminPropertyDetailAgent;
+  agent: AdminPropertyDetailAgent | null;
+  owner: AdminPropertyOwnerDetail | null;
   images: PropertyImage[];
 }
 

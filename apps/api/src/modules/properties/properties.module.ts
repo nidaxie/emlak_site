@@ -8,10 +8,15 @@ import { AdminPropertiesController } from './admin-properties.controller';
 import { PropertiesController } from './properties.controller';
 import { PropertiesService } from './properties.service';
 import { PropertyImagesService } from './property-images.service';
+import { UserPropertiesController } from './user-properties.controller';
 
 @Module({
   imports: [PrismaModule, AuthModule, AuditModule, StorageModule],
-  controllers: [PropertiesController, AdminPropertiesController],
+  controllers: [
+    PropertiesController,
+    UserPropertiesController,
+    AdminPropertiesController,
+  ],
   providers: [PropertiesService, PropertyImagesService, RolesGuard],
   exports: [PropertiesService],
 })

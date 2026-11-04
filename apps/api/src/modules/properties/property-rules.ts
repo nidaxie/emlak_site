@@ -13,6 +13,16 @@ export function canTransition(from: PropertyStatus, to: PropertyStatus) {
   return transitions[from].includes(to);
 }
 
+export function canTransitionIndividual(
+  from: PropertyStatus,
+  to: PropertyStatus,
+) {
+  return (
+    (from === PropertyStatus.ACTIVE && to === PropertyStatus.INACTIVE) ||
+    (from === PropertyStatus.INACTIVE && to === PropertyStatus.ACTIVE)
+  );
+}
+
 export function normalizeDecimal(value: unknown, scale: number) {
   if (typeof value === 'number' && Number.isFinite(value)) {
     const text = value.toString();

@@ -36,6 +36,7 @@ model User {
   reviewedApplications AgentApplication[] @relation("ApplicationReviewer")
   agentProfile         AgentProfile?
   favorites            Favorite[]
+  ownedProperties      Property[]         @relation("IndividualPropertyOwner")
 
   @@map("users")
 }
@@ -144,11 +145,21 @@ enum Currency {
   TRY
 }
 
+enum PropertySellerType {
+  INDIVIDUAL
+  AGENT
+}
+
 // Latitude and longitude are the write model. A database trigger copies them
 // into location, a geography(Point, 4326) column, on every insert and update.
+// Ownership is a SQL check constraint, not only application code:
+// INDIVIDUAL => ownerUserId IS NOT NULL AND agentProfileId IS NULL
+// AGENT => agentProfileId IS NOT NULL AND ownerUserId IS NULL
 model Property {
-  id             String         @id @default(uuid()) @db.Uuid
-  agentProfileId String         @db.Uuid
+  id             String             @id @default(uuid()) @db.Uuid
+  sellerType     PropertySellerType
+  ownerUserId    String?            @db.Uuid
+  agentProfileId String?            @db.Uuid
   title          String
   description    String
   listingType    ListingType
@@ -179,7 +190,8 @@ model Property {
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
   deletedAt      DateTime?
-  agentProfile   AgentProfile   @relation(fields: [agentProfileId], references: [id], onDelete: Cascade)
+  ownerUser      User?          @relation("IndividualPropertyOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
+  agentProfile   AgentProfile?  @relation(fields: [agentProfileId], references: [id], onDelete: Cascade)
   city           City           @relation(fields: [cityId], references: [id], onDelete: Restrict)
   district       District       @relation(fields: [districtId], references: [id], onDelete: Restrict)
   neighborhood   Neighborhood   @relation(fields: [neighborhoodId], references: [id], onDelete: Restrict)
@@ -187,6 +199,8 @@ model Property {
   favorites      Favorite[]
 
   @@index([agentProfileId, createdAt])
+  @@index([ownerUserId, deletedAt])
+  @@index([sellerType, status, deletedAt])
   @@index([status, deletedAt, createdAt])
   @@index([status, price])
   @@index([status, cityId, districtId])

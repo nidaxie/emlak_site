@@ -75,6 +75,9 @@ describe('Auth and users (e2e)', () => {
 
   afterAll(async () => {
     if (prisma) {
+      await prisma.property.deleteMany({
+        where: { ownerUser: { email: { startsWith: 'phase2-' } } },
+      });
       await prisma.user.deleteMany({
         where: { email: { startsWith: 'phase2-' } },
       });
