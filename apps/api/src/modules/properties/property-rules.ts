@@ -65,7 +65,10 @@ export function formatArea(value: Prisma.Decimal | string | number | null) {
   return new Prisma.Decimal(value).toFixed(2);
 }
 
-export function formatCoordinate(value: Prisma.Decimal | string | number) {
+export function formatCoordinate(
+  value: Prisma.Decimal | string | number | null,
+) {
+  if (value === null) return null;
   return new Prisma.Decimal(value).toFixed(6);
 }
 

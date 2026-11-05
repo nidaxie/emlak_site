@@ -179,9 +179,9 @@ model Property {
   districtId     String         @db.Uuid
   neighborhoodId String         @db.Uuid
   address        String
-  latitude       Decimal        @db.Decimal(9, 6)
-  longitude      Decimal        @db.Decimal(9, 6)
-  location       Unsupported("geography(Point, 4326)") @default(dbgenerated("(st_setsrid(st_makepoint((0)::double precision, (0)::double precision), 4326))::geography"))
+  latitude       Decimal?       @db.Decimal(9, 6)
+  longitude      Decimal?       @db.Decimal(9, 6)
+  location       Unsupported("geography(Point, 4326)")? @default(dbgenerated("(st_setsrid(st_makepoint((0)::double precision, (0)::double precision), 4326))::geography"))
   isFurnished    Boolean        @default(false)
   hasBalcony     Boolean        @default(false)
   hasElevator    Boolean        @default(false)

@@ -688,7 +688,7 @@ Hepsi `AGENT` ve Bearer ister. Başka emlakçının ilanı 404 `Property not fou
 }
 ```
 
-Zorunlu alanlar: `title` (5–160), `description` (20–5000), `listingType`, `propertyType`, `price`, `grossAreaM2`, `rooms` (0–50), `livingRooms` (0–20), üç lokasyon ID'si, `address` (5–300), `latitude`, `longitude`.
+Zorunlu alanlar: `title` (5–160), `description` (20–5000), `listingType`, `propertyType`, `price`, `grossAreaM2`, `rooms` (0–50), `livingRooms` (0–20), üç lokasyon ID'si, `address` (5–300). `latitude` ve `longitude` opsiyoneldir; gönderilmezse kolonlar boş kalır ve silinmez.
 
 Opsiyonel: `netAreaM2`, `buildingAge` (0–300), `floor` (-5–200), `totalFloors` (1–200), `heatingType`, beş boolean özellik. Boolean'lar gönderilmezse `false` olur. Net alan brüt alandan büyük olamaz. `floor`, `totalFloors` değerinden büyük olamaz.
 
@@ -719,7 +719,7 @@ DELETE /user-properties/:id
 
 `POST` gövdesi `CreatePropertyRequest` ile aynıdır. `sellerType`, `ownerUserId`, `agentProfileId`, `status`, `currency`, `createdAt`, `updatedAt` ve `deletedAt` gönderilirse 400 döner. Sunucu ilanı `sellerType = INDIVIDUAL`, `ownerUserId = current user`, `agentProfileId = null`, `status = ACTIVE`, `currency = TRY` olarak yazar. Yanıt `UserPropertyRecord` olur. `ownerUserId` yanıtta yoktur.
 
-`GET /user-properties/me` aynı `page` / `limit` sözleşmesini kullanır: `{ items, page, limit, total }`. Yalnız current user'ın silinmemiş INDIVIDUAL ilanları gelir.
+`GET /user-properties/me` aynı `page` / `limit` sözleşmesini kullanır: `{ items, page, limit, total }`. Yalnız current user'ın silinmemiş INDIVIDUAL ilanları gelir. Her öğede `coverImageUrl` vardır. Canlı kapak yoksa değer `null` olur. Dolu değer `/api/v1/files/<uuid>` path'idir.
 
 `GET /user-properties/me/:id` `UserPropertyDetail` döner. `cityId`, `districtId`, `neighborhoodId` ve canlı `images` (`id`, `url`, `sortOrder`, `isCover`, `sortOrder` artan) vardır. Silinmiş fotoğraf gelmez.
 

@@ -1,12 +1,17 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma/prisma.service';
 
+const productPlateCodes = Array.from({ length: 81 }, (_, index) =>
+  String(index + 1).padStart(2, '0'),
+);
+
 @Injectable()
 export class LocationsService {
   constructor(private readonly prisma: PrismaService) {}
 
   cities() {
     return this.prisma.city.findMany({
+      where: { code: { in: productPlateCodes } },
       orderBy: { name: 'asc' },
       select: { id: true, name: true, code: true },
     });

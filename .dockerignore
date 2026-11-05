@@ -8,3 +8,8 @@ node_modules
 **/*.md
 apps/api/src/generated
 **/*.tsbuildinfo
+
+# Object storage data only. Do not use a bare "storage/" pattern:
+# it also excludes apps/api/src/modules/storage from the image.
+/storage/
+apps/api/storage/

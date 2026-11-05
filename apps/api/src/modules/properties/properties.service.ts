@@ -332,13 +332,24 @@ export class PropertiesService {
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         skip: (page - 1) * limit,
         take: limit,
-        select: managedSelect,
+        select: {
+          ...managedSelect,
+          images: {
+            where: { deletedAt: null },
+            orderBy: [{ isCover: 'desc' }, { sortOrder: 'asc' }],
+            take: 1,
+            select: { fileId: true },
+          },
+        },
       }),
       this.prisma.property.count({ where }),
     ]);
 
     return {
-      items: items.map((item) => presentManaged(item)),
+      items: items.map(({ images, ...item }) => ({
+        ...presentManaged(item),
+        coverImageUrl: publicFileUrl(images[0]?.fileId),
+      })),
       page,
       limit,
       total,
@@ -990,8 +1001,12 @@ function propertyData(dto: CreatePropertyDto) {
     districtId: dto.districtId,
     neighborhoodId: dto.neighborhoodId,
     address: dto.address,
-    latitude: parseLatitude(dto.latitude),
-    longitude: parseLongitude(dto.longitude),
+    ...(dto.latitude !== undefined
+      ? { latitude: parseLatitude(dto.latitude) }
+      : {}),
+    ...(dto.longitude !== undefined
+      ? { longitude: parseLongitude(dto.longitude) }
+      : {}),
     isFurnished: dto.isFurnished ?? false,
     hasBalcony: dto.hasBalcony ?? false,
     hasElevator: dto.hasElevator ?? false,
@@ -1094,8 +1109,8 @@ function presentManaged(
     totalFloors: number | null;
     heatingType: string | null;
     address: string;
-    latitude: Prisma.Decimal;
-    longitude: Prisma.Decimal;
+    latitude: Prisma.Decimal | null;
+    longitude: Prisma.Decimal | null;
     isFurnished: boolean;
     hasBalcony: boolean;
     hasElevator: boolean;
@@ -1135,8 +1150,8 @@ function presentPublic(
     totalFloors: number | null;
     heatingType: string | null;
     address: string;
-    latitude: Prisma.Decimal;
-    longitude: Prisma.Decimal;
+    latitude: Prisma.Decimal | null;
+    longitude: Prisma.Decimal | null;
     isFurnished: boolean;
     hasBalcony: boolean;
     hasElevator: boolean;
@@ -1223,8 +1238,8 @@ function presentAdmin(
     totalFloors: number | null;
     heatingType: string | null;
     address: string;
-    latitude: Prisma.Decimal;
-    longitude: Prisma.Decimal;
+    latitude: Prisma.Decimal | null;
+    longitude: Prisma.Decimal | null;
     isFurnished: boolean;
     hasBalcony: boolean;
     hasElevator: boolean;
@@ -1288,8 +1303,8 @@ function presentFields(
     totalFloors: number | null;
     heatingType: string | null;
     address: string;
-    latitude: Prisma.Decimal;
-    longitude: Prisma.Decimal;
+    latitude: Prisma.Decimal | null;
+    longitude: Prisma.Decimal | null;
     isFurnished: boolean;
     hasBalcony: boolean;
     hasElevator: boolean;

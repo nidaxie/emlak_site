@@ -169,8 +169,8 @@ export interface PropertyCard {
   district: string;
   neighborhood: string;
   address: string;
-  latitude: string;
-  longitude: string;
+  latitude: string | null;
+  longitude: string | null;
   isFurnished: boolean;
   hasBalcony: boolean;
   hasElevator: boolean;
@@ -244,8 +244,8 @@ export interface PropertyRecord {
   district: string;
   neighborhood: string;
   address: string;
-  latitude: string;
-  longitude: string;
+  latitude: string | null;
+  longitude: string | null;
   isFurnished: boolean;
   hasBalcony: boolean;
   hasElevator: boolean;
@@ -265,6 +265,7 @@ export interface UserPropertyRecord
   extends Omit<PropertyRecord, 'sellerType' | 'agentProfileId'> {
   sellerType: 'INDIVIDUAL';
   agentProfileId: null;
+  coverImageUrl?: string | null;
 }
 
 export interface UserPropertyDetail extends UserPropertyRecord {
@@ -293,8 +294,8 @@ export interface CreatePropertyRequest {
   districtId: string;
   neighborhoodId: string;
   address: string;
-  latitude: string;
-  longitude: string;
+  latitude?: string;
+  longitude?: string;
   isFurnished?: boolean;
   hasBalcony?: boolean;
   hasElevator?: boolean;
