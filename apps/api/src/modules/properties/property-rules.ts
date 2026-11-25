@@ -13,6 +13,16 @@ export function canTransition(from: PropertyStatus, to: PropertyStatus) {
   return transitions[from].includes(to);
 }
 
+export function canTransitionIndividual(
+  from: PropertyStatus,
+  to: PropertyStatus,
+) {
+  return (
+    (from === PropertyStatus.ACTIVE && to === PropertyStatus.INACTIVE) ||
+    (from === PropertyStatus.INACTIVE && to === PropertyStatus.ACTIVE)
+  );
+}
+
 export function normalizeDecimal(value: unknown, scale: number) {
   if (typeof value === 'number' && Number.isFinite(value)) {
     const text = value.toString();
@@ -55,7 +65,10 @@ export function formatArea(value: Prisma.Decimal | string | number | null) {
   return new Prisma.Decimal(value).toFixed(2);
 }
 
-export function formatCoordinate(value: Prisma.Decimal | string | number) {
+export function formatCoordinate(
+  value: Prisma.Decimal | string | number | null,
+) {
+  if (value === null) return null;
   return new Prisma.Decimal(value).toFixed(6);
 }
 

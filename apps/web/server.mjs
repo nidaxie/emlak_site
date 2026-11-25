@@ -1,5 +1,5 @@
 import { createReadStream, existsSync, statSync } from 'node:fs';
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import path from 'node:path';
 
 const distDir = path.resolve(import.meta.dirname, 'dist');
@@ -31,19 +31,112 @@ const securityHeaders = {
   'Referrer-Policy': 'strict-origin-when-cross-origin',
 };
 
-const server = createServer((req, res) => {
-  if (req.method !== 'GET' && req.method !== 'HEAD') {
-    res.writeHead(405, { ...securityHeaders, 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('Method Not Allowed');
+const hopByHop = new Set([
+  'connection',
+  'keep-alive',
+  'proxy-authenticate',
+  'proxy-authorization',
+  'proxy-connection',
+  'te',
+  'trailer',
+  'transfer-encoding',
+  'upgrade',
+  'expect',
+]);
+
+function isApiPath(pathname) {
+  return pathname === '/api/v1' || pathname.startsWith('/api/v1/');
+}
+
+function writePlain(res, status, body) {
+  res.writeHead(status, {
+    ...securityHeaders,
+    'Content-Type': 'text/plain; charset=utf-8',
+    'Cache-Control': 'no-store',
+  });
+  res.end(body);
+}
+
+function proxyApi(req, res) {
+  const rawTarget = process.env.API_PROXY_TARGET;
+  if (!rawTarget) {
+    writePlain(res, 404, 'Not Found');
     return;
   }
 
+  let target;
+  try {
+    target = new URL(rawTarget);
+  } catch {
+    writePlain(res, 502, 'Bad Gateway');
+    return;
+  }
+
+  if (target.protocol !== 'http:') {
+    writePlain(res, 502, 'Bad Gateway');
+    return;
+  }
+
+  const headers = {};
+  for (const [key, value] of Object.entries(req.headers)) {
+    if (value === undefined || hopByHop.has(key) || key === 'host') {
+      continue;
+    }
+    headers[key] = value;
+  }
+
+  const proxyReq = httpRequest(
+    {
+      protocol: target.protocol,
+      hostname: target.hostname,
+      port: target.port || 80,
+      method: req.method,
+      path: req.url,
+      headers,
+    },
+    (proxyRes) => {
+      const responseHeaders = {};
+      for (const [key, value] of Object.entries(proxyRes.headers)) {
+        if (value === undefined || hopByHop.has(key)) {
+          continue;
+        }
+        responseHeaders[key] = value;
+      }
+      res.writeHead(proxyRes.statusCode || 502, responseHeaders);
+      proxyRes.pipe(res);
+    },
+  );
+
+  proxyReq.on('error', () => {
+    if (!res.headersSent) {
+      writePlain(res, 502, 'Bad Gateway');
+      return;
+    }
+    res.destroy();
+  });
+
+  req.on('aborted', () => proxyReq.destroy());
+  req.on('error', () => proxyReq.destroy());
+  req.pipe(proxyReq);
+}
+
+const server = createServer((req, res) => {
   let pathname = '/';
   try {
     pathname = decodeURIComponent(new URL(req.url || '/', 'http://localhost').pathname);
   } catch {
-    res.writeHead(400, { ...securityHeaders, 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('Bad Request');
+    writePlain(res, 400, 'Bad Request');
+    return;
+  }
+
+  if (isApiPath(pathname)) {
+    proxyApi(req, res);
+    return;
+  }
+
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    res.writeHead(405, { ...securityHeaders, 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Method Not Allowed');
     return;
   }
 
@@ -96,3 +189,11 @@ const server = createServer((req, res) => {
 server.listen(port, '0.0.0.0', () => {
   console.log(`Web static server listening on http://localhost:${port}`);
 });
+
+function shutdown() {
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(0), 2000).unref();
+}
+
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);

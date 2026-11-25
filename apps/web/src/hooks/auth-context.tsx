@@ -60,9 +60,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     setUnauthorizedHandler(() => {
       if (live) {
+        const hadUser = Boolean(userRef.current);
         setUser(null);
         setTokenState(null);
-        queryClient.clear();
+        if (hadUser) queryClient.clear();
       }
     });
 

@@ -58,11 +58,35 @@ describe('JwtAuthGuard', () => {
   });
 
   it('rejects an inactive user even when the token signature is valid', async () => {
-    tokens.verifyAccess.mockReturnValue({ sub: 'user-1', role: Role.USER });
+    tokens.verifyAccess.mockReturnValue({
+      sub: 'user-1',
+      role: Role.USER,
+      ver: 0,
+    });
     prisma.user.findUnique.mockResolvedValue({
       id: 'user-1',
       role: Role.USER,
       isActive: false,
+      tokenVersion: 0,
+    });
+    const { context } = contextFor('Bearer access-token');
+
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+  });
+
+  it('rejects a token issued before the account was deactivated', async () => {
+    tokens.verifyAccess.mockReturnValue({
+      sub: 'user-1',
+      role: Role.USER,
+      ver: 0,
+    });
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'user-1',
+      role: Role.USER,
+      isActive: true,
+      tokenVersion: 1,
     });
     const { context } = contextFor('Bearer access-token');
 
@@ -72,11 +96,16 @@ describe('JwtAuthGuard', () => {
   });
 
   it('sets request.user from the current database role', async () => {
-    tokens.verifyAccess.mockReturnValue({ sub: 'user-1', role: Role.USER });
+    tokens.verifyAccess.mockReturnValue({
+      sub: 'user-1',
+      role: Role.USER,
+      ver: 0,
+    });
     prisma.user.findUnique.mockResolvedValue({
       id: 'user-1',
       role: Role.AGENT,
       isActive: true,
+      tokenVersion: 0,
     });
     const { context, request } = contextFor('Bearer access-token');
 

@@ -2,9 +2,11 @@ import { ApiRequestError, queryString, request } from '@/lib/api-client';
 import { isMockDataEnabled } from '@/lib/data-mode';
 import type {
   ActiveStatusResponse,
-  AdminUser,
   AdminUserDetail,
+  AdminUserListItem,
   AdminUserListQuery,
+  AdminUserSummary,
+  AdminUserSummaryQuery,
   PaginatedResponse,
 } from '@/types/api';
 
@@ -23,10 +25,21 @@ function assertApiModeForAdminUsers() {
 export const adminUsersService = {
   getUsers: (
     query: AdminUserListQuery,
-  ): Promise<PaginatedResponse<AdminUser>> => {
+  ): Promise<PaginatedResponse<AdminUserListItem>> => {
     assertApiModeForAdminUsers();
-    return request<PaginatedResponse<AdminUser>>(
+    return request<PaginatedResponse<AdminUserListItem>>(
       `/admin/users${queryString(query)}`,
+      {},
+      { auth: true },
+    );
+  },
+
+  getUserSummary: (
+    query: AdminUserSummaryQuery = {},
+  ): Promise<AdminUserSummary> => {
+    assertApiModeForAdminUsers();
+    return request<AdminUserSummary>(
+      `/admin/users/summary${queryString(query)}`,
       {},
       { auth: true },
     );

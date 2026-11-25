@@ -38,6 +38,7 @@ Thumbs.db
 # Docker
 docker-data/
 
-# Local object storage
-storage/
+# Local object storage data. A bare "storage/" pattern would also
+# ignore apps/api/src/modules/storage.
+/storage/
 apps/api/storage/

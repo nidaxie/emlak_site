@@ -10,6 +10,7 @@ import { authService } from '@/services/auth';
 import { favoritesService } from '@/services/favorites';
 import { propertiesService } from '@/services/properties';
 import { propertyImagesService } from '@/services/property-images';
+import { userPropertiesService } from '@/services/user-properties';
 import { usersService } from '@/services/users';
 import type * as T from '@/types/api';
 
@@ -24,6 +25,7 @@ export const locationsApi = {
 };
 export const propertiesApi = propertiesService;
 export const propertyImagesApi = propertyImagesService;
+export const userPropertiesApi = userPropertiesService;
 export const favoritesApi = favoritesService;
 export const agentsApi = agentsService;
 export const applicationsApi = agentApplicationsService;

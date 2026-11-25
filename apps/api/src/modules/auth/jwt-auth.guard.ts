@@ -31,10 +31,10 @@ export class JwtAuthGuard implements CanActivate {
     const claims = this.tokens.verifyAccess(token);
     const user = await this.prisma.user.findUnique({
       where: { id: claims.sub },
-      select: { id: true, role: true, isActive: true },
+      select: { id: true, role: true, isActive: true, tokenVersion: true },
     });
 
-    if (!user || !user.isActive) {
+    if (!user || !user.isActive || user.tokenVersion !== claims.ver) {
       throw new UnauthorizedException('Unauthorized');
     }
 

@@ -99,13 +99,23 @@ export class CreatePropertyDto {
   @MaxLength(300)
   address!: string;
 
-  @Transform(({ value }: { value: unknown }) => normalizeDecimal(value, 6))
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    value === undefined || value === null || value === ''
+      ? undefined
+      : normalizeDecimal(value, 6),
+  )
   @Matches(/^-?\d+\.\d{6}$/)
-  latitude!: string;
+  latitude?: string;
 
-  @Transform(({ value }: { value: unknown }) => normalizeDecimal(value, 6))
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    value === undefined || value === null || value === ''
+      ? undefined
+      : normalizeDecimal(value, 6),
+  )
   @Matches(/^-?\d+\.\d{6}$/)
-  longitude!: string;
+  longitude?: string;
 
   @IsOptional()
   @IsBoolean()

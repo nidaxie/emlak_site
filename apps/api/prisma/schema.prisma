@@ -15,6 +15,7 @@ enum Role {
 }
 
 enum ApplicationStatus {
+  DRAFT
   PENDING
   APPROVED
   REJECTED
@@ -29,6 +30,9 @@ model User {
   phone                String?
   role                 Role               @default(USER)
   isActive             Boolean            @default(true)
+  // Bumped only when an active account is deactivated. Access tokens carry
+  // this integer. Reactivation does not move it backward.
+  tokenVersion         Int                @default(0)
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
   sessions             AuthSession[]
@@ -36,6 +40,7 @@ model User {
   reviewedApplications AgentApplication[] @relation("ApplicationReviewer")
   agentProfile         AgentProfile?
   favorites            Favorite[]
+  ownedProperties      Property[]         @relation("IndividualPropertyOwner")
 
   @@map("users")
 }
@@ -56,8 +61,9 @@ model AuthSession {
 
 // Application email is the firm contact captured at submission time.
 // It is independent of the account email and stays as a historical snapshot.
-// One PENDING row per user is enforced by a partial unique index in SQL.
-// Prisma cannot express that predicate, so the migration owns the constraint.
+// One PENDING row per user, and one open DRAFT or PENDING row per user,
+// are partial unique indexes in SQL. Prisma cannot express those predicates.
+// submittedAt stays null while the row is DRAFT and is set when it is submitted.
 model AgentApplication {
   id                  String            @id @default(uuid()) @db.Uuid
   userId              String            @db.Uuid
@@ -71,7 +77,8 @@ model AgentApplication {
   district            String
   address             String
   description         String?
-  status              ApplicationStatus @default(PENDING)
+  status              ApplicationStatus @default(DRAFT)
+  submittedAt         DateTime?
   rejectionReason     String?
   reviewedById        String?           @db.Uuid
   reviewedAt          DateTime?
@@ -144,11 +151,21 @@ enum Currency {
   TRY
 }
 
+enum PropertySellerType {
+  INDIVIDUAL
+  AGENT
+}
+
 // Latitude and longitude are the write model. A database trigger copies them
 // into location, a geography(Point, 4326) column, on every insert and update.
+// Ownership is a SQL check constraint, not only application code:
+// INDIVIDUAL => ownerUserId IS NOT NULL AND agentProfileId IS NULL
+// AGENT => agentProfileId IS NOT NULL AND ownerUserId IS NULL
 model Property {
-  id             String         @id @default(uuid()) @db.Uuid
-  agentProfileId String         @db.Uuid
+  id             String             @id @default(uuid()) @db.Uuid
+  sellerType     PropertySellerType
+  ownerUserId    String?            @db.Uuid
+  agentProfileId String?            @db.Uuid
   title          String
   description    String
   listingType    ListingType
@@ -168,9 +185,9 @@ model Property {
   districtId     String         @db.Uuid
   neighborhoodId String         @db.Uuid
   address        String
-  latitude       Decimal        @db.Decimal(9, 6)
-  longitude      Decimal        @db.Decimal(9, 6)
-  location       Unsupported("geography(Point, 4326)") @default(dbgenerated("(st_setsrid(st_makepoint((0)::double precision, (0)::double precision), 4326))::geography"))
+  latitude       Decimal?       @db.Decimal(9, 6)
+  longitude      Decimal?       @db.Decimal(9, 6)
+  location       Unsupported("geography(Point, 4326)")? @default(dbgenerated("(st_setsrid(st_makepoint((0)::double precision, (0)::double precision), 4326))::geography"))
   isFurnished    Boolean        @default(false)
   hasBalcony     Boolean        @default(false)
   hasElevator    Boolean        @default(false)
@@ -179,7 +196,8 @@ model Property {
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
   deletedAt      DateTime?
-  agentProfile   AgentProfile   @relation(fields: [agentProfileId], references: [id], onDelete: Cascade)
+  ownerUser      User?          @relation("IndividualPropertyOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
+  agentProfile   AgentProfile?  @relation(fields: [agentProfileId], references: [id], onDelete: Cascade)
   city           City           @relation(fields: [cityId], references: [id], onDelete: Restrict)
   district       District       @relation(fields: [districtId], references: [id], onDelete: Restrict)
   neighborhood   Neighborhood   @relation(fields: [neighborhoodId], references: [id], onDelete: Restrict)
@@ -187,6 +205,8 @@ model Property {
   favorites      Favorite[]
 
   @@index([agentProfileId, createdAt])
+  @@index([ownerUserId, deletedAt])
+  @@index([sellerType, status, deletedAt])
   @@index([status, deletedAt, createdAt])
   @@index([status, price])
   @@index([status, cityId, districtId])

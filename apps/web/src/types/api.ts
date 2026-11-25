@@ -6,7 +6,7 @@
 
 export type Role = 'USER' | 'AGENT' | 'ADMIN';
 
-export type ApplicationStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+export type ApplicationStatus = 'DRAFT' | 'PENDING' | 'APPROVED' | 'REJECTED';
 
 export type ListingType = 'SALE' | 'RENT';
 
@@ -19,6 +19,8 @@ export type HeatingType =
   'COMBI' | 'CENTRAL' | 'FLOOR_HEATING' | 'STOVE' | 'NONE' | 'OTHER';
 
 export type Currency = 'TRY';
+
+export type PropertySellerType = 'INDIVIDUAL' | 'AGENT';
 
 export type FileVisibility = 'PUBLIC' | 'PRIVATE';
 
@@ -167,8 +169,8 @@ export interface PropertyCard {
   district: string;
   neighborhood: string;
   address: string;
-  latitude: string;
-  longitude: string;
+  latitude: string | null;
+  longitude: string | null;
   isFurnished: boolean;
   hasBalcony: boolean;
   hasElevator: boolean;
@@ -177,12 +179,15 @@ export interface PropertyCard {
   createdAt: string;
   coverImageUrl: string | null;
   isFavorite: boolean;
-  agent: AgentCardSummary;
+  sellerType: PropertySellerType;
+  sellerName: string;
+  agent: AgentCardSummary | null;
 }
 
 export interface PropertyDetail extends Omit<PropertyCard, 'agent'> {
   images: PropertyImage[];
-  agent: AgentDetailSummary;
+  sellerDisplayName: string;
+  agent: AgentDetailSummary | null;
 }
 
 export interface PublicPropertyListQuery extends PageQuery {
@@ -215,7 +220,8 @@ export interface FavoriteRemovalResponse {
 
 export interface PropertyRecord {
   id: string;
-  agentProfileId: string;
+  sellerType: PropertySellerType;
+  agentProfileId: string | null;
   title: string;
   description: string;
   listingType: ListingType;
@@ -238,8 +244,8 @@ export interface PropertyRecord {
   district: string;
   neighborhood: string;
   address: string;
-  latitude: string;
-  longitude: string;
+  latitude: string | null;
+  longitude: string | null;
   isFurnished: boolean;
   hasBalcony: boolean;
   hasElevator: boolean;
@@ -251,8 +257,27 @@ export interface PropertyRecord {
   images?: PropertyImage[];
 }
 
+export interface AgentPropertyListItem extends PropertyRecord {
+  coverImageUrl: string | null;
+}
+
 export interface OwnerPropertyDetail extends PropertyRecord {
   images: PropertyImage[];
+}
+
+export interface UserPropertyRecord
+  extends Omit<PropertyRecord, 'sellerType' | 'agentProfileId'> {
+  sellerType: 'INDIVIDUAL';
+  agentProfileId: null;
+  coverImageUrl?: string | null;
+}
+
+export interface UserPropertyDetail extends UserPropertyRecord {
+  images: PropertyImage[];
+}
+
+export interface UpdateUserPropertyStatusRequest {
+  status: 'ACTIVE' | 'INACTIVE';
 }
 
 export interface CreatePropertyRequest {
@@ -273,8 +298,8 @@ export interface CreatePropertyRequest {
   districtId: string;
   neighborhoodId: string;
   address: string;
-  latitude: string;
-  longitude: string;
+  latitude?: string;
+  longitude?: string;
   isFurnished?: boolean;
   hasBalcony?: boolean;
   hasElevator?: boolean;
@@ -365,6 +390,7 @@ export interface AgentApplication {
   description: string | null;
   rejectionReason: string | null;
   reviewedAt: string | null;
+  submittedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -430,6 +456,35 @@ export interface AdminUser {
   createdAt: string;
 }
 
+export interface AdminListingCounts {
+  total: number;
+  active: number;
+  inactive: number;
+  sold: number;
+  rented: number;
+  publiclyVisible: number;
+}
+
+export interface AdminUserListItem extends AdminUser {
+  individualListingCount: number;
+  agentListingCount: number;
+  agentProfile: {
+    id: string;
+    companyName: string;
+    isActive: boolean;
+  } | null;
+}
+
+export interface AdminUserApplicationPreview {
+  id: string;
+  companyName: string;
+  status: ApplicationStatus;
+  createdAt: string;
+  submittedAt: string | null;
+  reviewedAt: string | null;
+  rejectionReason: string | null;
+}
+
 export interface AdminUserDetail extends AdminUser {
   updatedAt: string;
   agentProfile: {
@@ -440,12 +495,56 @@ export interface AdminUserDetail extends AdminUser {
     city: string;
     district: string;
   } | null;
+  individualListings: AdminListingCounts;
+  agentListings: AdminListingCounts | null;
+  applications: {
+    items: AdminUserApplicationPreview[];
+    total: number;
+  };
+  managementEvents: PaginatedResponse<AuditLog>;
 }
 
 export interface AdminUserListQuery extends PageQuery {
   role?: Role;
   isActive?: 'true' | 'false';
   email?: string;
+  createdFrom?: string;
+  createdTo?: string;
+}
+
+export interface AdminUserRoleCount {
+  total: number;
+  active: number;
+  inactive: number;
+}
+
+export interface AdminUserRegistrationPoint {
+  bucketStart: string;
+  count: number;
+}
+
+export interface AdminUserSummaryQuery {
+  createdFrom?: string;
+  createdTo?: string;
+  bucket?: 'day' | 'month';
+}
+
+export interface AdminUserSummary {
+  total: number;
+  active: number;
+  inactive: number;
+  roles: {
+    USER: AdminUserRoleCount;
+    AGENT: AdminUserRoleCount;
+    ADMIN: AdminUserRoleCount;
+  };
+  registrations: {
+    from: string;
+    to: string;
+    bucket: 'day' | 'month';
+    total: number;
+    points: AdminUserRegistrationPoint[];
+  } | null;
 }
 
 export interface AdminAgentListItem {
@@ -476,29 +575,94 @@ export interface AdminAgentListQuery extends PageQuery {
   district?: string;
 }
 
+export interface ApplicationDocumentCompletion {
+  requiredCount: number;
+  completedCount: number;
+  isComplete: boolean;
+  missingTypes: Array<'TAX_CERTIFICATE' | 'AUTHORIZATION_CERTIFICATE'>;
+}
+
+export interface ApplicationReviewerSummary {
+  id: string;
+  firstName: string | null;
+  lastName: string | null;
+}
+
+export interface ApplicationProfileLink {
+  id: string;
+  slug: string;
+  companyName: string;
+  isActive: boolean;
+}
+
 export interface AdminAgentApplicationListItem {
   id: string;
   status: ApplicationStatus;
   companyName: string;
+  phone: string;
+  email: string;
   city: string;
   district: string;
   createdAt: string;
+  submittedAt: string | null;
+  reviewedAt: string | null;
+  documentCompletion: ApplicationDocumentCompletion;
   user: {
     id: string;
+    firstName: string | null;
+    lastName: string | null;
     email: string;
     role: Role;
     isActive: boolean;
   };
+  reviewedBy: ApplicationReviewerSummary | null;
 }
 
 export interface AdminAgentApplication extends AgentApplication {
   userId: string;
   reviewedById: string | null;
   user: AdminUser;
+  documentCompletion: ApplicationDocumentCompletion;
+  reviewedBy: ApplicationReviewerSummary | null;
+  agentProfile: ApplicationProfileLink | null;
 }
 
 export interface AdminAgentApplicationListQuery extends PageQuery {
+  search?: string;
   status?: ApplicationStatus;
+  city?: string;
+  district?: string;
+  userId?: string;
+  createdFrom?: string;
+  createdTo?: string;
+}
+
+export interface AdminAgentApplicationSummaryQuery {
+  createdFrom?: string;
+  createdTo?: string;
+  bucket?: 'day' | 'month';
+}
+
+export interface AdminAgentApplicationSummary {
+  total: number;
+  statuses: {
+    DRAFT: number;
+    PENDING: number;
+    APPROVED: number;
+    REJECTED: number;
+  };
+  oldestPending: {
+    id: string;
+    submittedAt: string;
+    waitingMs: number;
+  } | null;
+  created: {
+    from: string;
+    to: string;
+    bucket: 'day' | 'month';
+    total: number;
+    points: AdminUserRegistrationPoint[];
+  } | null;
 }
 
 export interface AgentApplicationApproval {
@@ -562,12 +726,24 @@ export interface AdminPropertyDetailAgent {
   };
 }
 
+export interface AdminPropertyOwnerSummary {
+  id: string;
+  role: Role;
+  isActive: boolean;
+}
+
+export interface AdminPropertyOwnerDetail extends AdminPropertyOwnerSummary {
+  email: string;
+}
+
 export interface AdminProperty extends PropertyRecord {
-  agent: AdminPropertyListAgent;
+  agent: AdminPropertyListAgent | null;
+  owner: AdminPropertyOwnerSummary | null;
 }
 
 export interface AdminPropertyDetail extends PropertyRecord {
-  agent: AdminPropertyDetailAgent;
+  agent: AdminPropertyDetailAgent | null;
+  owner: AdminPropertyOwnerDetail | null;
   images: PropertyImage[];
 }
 
@@ -576,6 +752,8 @@ export interface AdminPropertyListQuery extends PageQuery {
   listingType?: ListingType;
   city?: string;
   deleted?: 'true' | 'false';
+  ownerUserId?: string;
+  agentUserId?: string;
 }
 
 export interface AuditLog {

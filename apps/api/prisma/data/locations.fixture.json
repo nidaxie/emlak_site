@@ -9,6 +9,26 @@
           "neighborhoods": ["Yazır"]
         }
       ]
+    },
+    {
+      "code": "34",
+      "name": "İstanbul",
+      "districts": [
+        {
+          "name": "Kadıköy",
+          "neighborhoods": ["Caferağa"]
+        }
+      ]
+    },
+    {
+      "code": "06",
+      "name": "Ankara",
+      "districts": [
+        {
+          "name": "Çankaya",
+          "neighborhoods": ["Kavaklıdere"]
+        }
+      ]
     }
   ]
 }

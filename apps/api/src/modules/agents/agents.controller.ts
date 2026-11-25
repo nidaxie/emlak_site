@@ -3,10 +3,13 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Query,
+  StreamableFile,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -22,6 +25,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../auth/optional-jwt-auth.guard';
 import { ListPublicPropertiesQueryDto } from '../properties/dto/list-properties-query.dto';
 import { PropertiesService } from '../properties/properties.service';
+import { contentDisposition } from '../storage/file-policy';
 import { AgentsService } from './agents.service';
 import { UpdateAgentProfileDto } from './dto/update-agent-profile.dto';
 
@@ -44,6 +48,23 @@ export class AgentsController {
   @Roles(Role.AGENT)
   update(@CurrentUser() user: AuthUser, @Body() dto: UpdateAgentProfileDto) {
     return this.agents.updateMine(user.id, dto);
+  }
+
+  @Get('me/files/:fileId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.AGENT)
+  @Header('Cache-Control', 'private, no-store')
+  @Header('X-Content-Type-Options', 'nosniff')
+  async openOwnedLogo(
+    @CurrentUser() user: AuthUser,
+    @Param('fileId', ParseUUIDPipe) fileId: string,
+  ) {
+    const file = await this.agents.openOwnedLogo(user.id, fileId);
+
+    return new StreamableFile(file.stream, {
+      type: file.mimeType,
+      disposition: contentDisposition('inline', file.originalName),
+    });
   }
 
   @Post('me/logo')

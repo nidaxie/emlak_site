@@ -7,6 +7,7 @@ import { Role } from '../../generated/prisma/enums';
 export type AccessTokenClaims = {
   sub: string;
   role: Role;
+  ver: number;
 };
 
 export type RefreshTokenClaims = {
@@ -28,7 +29,7 @@ export class TokenService {
 
   signAccess(claims: AccessTokenClaims) {
     return sign(
-      { sub: claims.sub, role: claims.role },
+      { sub: claims.sub, role: claims.role, ver: claims.ver },
       this.config.getOrThrow<string>('JWT_SECRET'),
       { expiresIn: this.expiresIn('JWT_ACCESS_EXPIRES_IN') },
     );
@@ -51,7 +52,13 @@ export class TokenService {
       throw new UnauthorizedException('Unauthorized');
     }
 
-    return { sub: payload.sub, role: payload.role };
+    const ver = payload.ver === undefined ? 0 : payload.ver;
+
+    if (typeof ver !== 'number' || !Number.isInteger(ver) || ver < 0) {
+      throw new UnauthorizedException('Unauthorized');
+    }
+
+    return { sub: payload.sub, role: payload.role, ver };
   }
 
   verifyRefresh(token: string): RefreshTokenClaims {

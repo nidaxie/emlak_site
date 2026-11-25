@@ -12,15 +12,18 @@ import {
   favoritesApi,
   locationsApi,
   propertiesApi,
+  userPropertiesApi,
   usersApi,
 } from '@/services/api';
 import { publicMarketplaceData } from '@/services/public-marketplace-data';
 import type {
   AgentPropertyListQuery,
   AdminAgentApplicationListQuery,
+  AdminAgentApplicationSummaryQuery,
   AdminAgentListQuery,
   AdminPropertyListQuery,
   AdminUserListQuery,
+  AdminUserSummaryQuery,
   AuditLogListQuery,
   FavoriteListResponse,
   MyPropertyListQuery,
@@ -36,6 +39,8 @@ export const keys = {
   property: (id: string) => ['property', id] as const,
   myProperties: (q: MyPropertyListQuery) => ['my-properties', q] as const,
   myProperty: (id: string) => ['my-property', id] as const,
+  userProperties: (q: MyPropertyListQuery) => ['user-properties', q] as const,
+  userProperty: (id: string) => ['user-property', id] as const,
   agentMe: ['agent-me'] as const,
   cities: ['cities'] as const,
   districts: (id: string) => ['districts', id] as const,
@@ -48,9 +53,13 @@ export const keys = {
   application: ['agent-application', 'me'] as const,
   applicationDocs: ['agent-application', 'documents'] as const,
   adminUsers: (q: AdminUserListQuery) => ['admin-users', q] as const,
+  adminUserSummary: (q: AdminUserSummaryQuery) =>
+    ['admin-user-summary', q] as const,
   adminUser: (id: string) => ['admin-user', id] as const,
   adminApplications: (q: AdminAgentApplicationListQuery) =>
     ['admin-agent-applications', q] as const,
+  adminApplicationSummary: (q: AdminAgentApplicationSummaryQuery) =>
+    ['admin-agent-application-summary', q] as const,
   adminApplication: (id: string) => ['admin-agent-application', id] as const,
   adminApplicationDocuments: (id: string) =>
     ['admin-agent-application-documents', id] as const,
@@ -121,11 +130,39 @@ export const useApiNeighborhoods = (id: string) =>
     staleTime: 300000,
   });
 
-export const useFavorites = (page = 1, limit = 20) =>
+export const useFavorites = (page = 1, limit = 20, enabled = true) =>
   useQuery({
     queryKey: [...keys.favorites, page, limit],
     queryFn: () => favoritesApi.getFavorites(page, limit),
+    enabled,
   });
+
+export const useMyUserProperties = (q: MyPropertyListQuery, enabled = true) =>
+  useQuery({
+    queryKey: keys.userProperties(q),
+    queryFn: () => userPropertiesApi.getMyUserProperties(q),
+    enabled,
+  });
+
+export const useMyUserProperty = (id: string, enabled = true) =>
+  useQuery({
+    queryKey: keys.userProperty(id),
+    queryFn: () => userPropertiesApi.getMyUserProperty(id),
+    enabled: enabled && !!id,
+  });
+
+export const useInvalidateUserProperties = () => {
+  const qc = useQueryClient();
+  return (propertyId?: string) => {
+    void qc.invalidateQueries({ queryKey: ['user-properties'] });
+    void qc.invalidateQueries({ queryKey: keys.properties });
+    void qc.invalidateQueries({ queryKey: keys.favorites });
+    if (propertyId) {
+      void qc.invalidateQueries({ queryKey: keys.userProperty(propertyId) });
+      void qc.invalidateQueries({ queryKey: keys.property(propertyId) });
+    }
+  };
+};
 
 export const useMineProperties = (q: MyPropertyListQuery, enabled = true) =>
   useQuery({
@@ -335,6 +372,16 @@ export const useAdminUsers = (q: AdminUserListQuery, enabled = true) =>
     enabled,
   });
 
+export const useAdminUserSummary = (
+  q: AdminUserSummaryQuery,
+  enabled = true,
+) =>
+  useQuery({
+    queryKey: keys.adminUserSummary(q),
+    queryFn: () => adminUsersApi.getUserSummary(q),
+    enabled,
+  });
+
 export const useAdminUser = (id: string, enabled = true) =>
   useQuery({
     queryKey: keys.adminUser(id),
@@ -363,6 +410,16 @@ export const useAdminApps = (
   useQuery({
     queryKey: keys.adminApplications(q),
     queryFn: () => adminApplicationsApi.getApplications(q),
+    enabled,
+  });
+
+export const useAdminApplicationSummary = (
+  q: AdminAgentApplicationSummaryQuery,
+  enabled = true,
+) =>
+  useQuery({
+    queryKey: keys.adminApplicationSummary(q),
+    queryFn: () => adminApplicationsApi.getApplicationSummary(q),
     enabled,
   });
 

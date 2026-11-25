@@ -59,6 +59,24 @@ export const agentApplicationsService = {
     );
   },
 
+  submitMyApplication: (): Promise<AgentApplication> => {
+    assertApiModeForAgentApplications();
+    return request<AgentApplication>(
+      '/agent-applications/me/submit',
+      { method: 'POST' },
+      { auth: true },
+    );
+  },
+
+  reviseMyApplication: (): Promise<AgentApplication> => {
+    assertApiModeForAgentApplications();
+    return request<AgentApplication>(
+      '/agent-applications/me/revise',
+      { method: 'POST' },
+      { auth: true },
+    );
+  },
+
   uploadDocument: (
     file: File,
     documentType: AgentDocumentType,

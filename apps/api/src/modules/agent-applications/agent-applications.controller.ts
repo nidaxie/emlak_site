@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Header,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -57,6 +58,20 @@ export class AgentApplicationsController {
     @Body() dto: UpdateAgentApplicationDto,
   ) {
     return this.applications.updateMine(user.id, dto);
+  }
+
+  @Post('me/submit')
+  @HttpCode(200)
+  @Roles(Role.USER)
+  submit(@CurrentUser() user: AuthUser) {
+    return this.applications.submit(user.id);
+  }
+
+  @Post('me/revise')
+  @HttpCode(200)
+  @Roles(Role.USER)
+  revise(@CurrentUser() user: AuthUser) {
+    return this.applications.revise(user.id);
   }
 
   @Post('me/documents')
