@@ -51,11 +51,13 @@ Auth sütunu:
 
 | Method | Path                                           | Auth   | Role        | Request                          | Response                     | Purpose                     |
 | ------ | ---------------------------------------------- | ------ | ----------- | -------------------------------- | ---------------------------- | --------------------------- |
-| POST   | `/agent-applications`                          | Bearer | `USER`      | `CreateAgentApplicationRequest`  | `AgentApplication`, 201      | Başvuru                     |
-| GET    | `/agent-applications/me`                       | Bearer | Aktif hesap | —                                | `AgentApplication`           | Son başvuru                 |
-| PATCH  | `/agent-applications/me`                       | Bearer | Aktif hesap | `UpdateAgentApplicationRequest`  | `AgentApplication`           | Yalnız `PENDING` güncelleme |
-| POST   | `/agent-applications/me/documents`             | Bearer | `USER`      | multipart `file`, `documentType` | `UploadedAgentDocument`, 201 | Belge ekler veya değiştirir |
-| GET    | `/agent-applications/me/documents`             | Bearer | Aktif hesap | —                                | `AgentApplicationDocument[]` | Son başvurunun belgeleri    |
+| POST   | `/agent-applications`                          | Bearer | `USER`      | `CreateAgentApplicationRequest`  | `AgentApplication`, 201      | Taslak başvuru              |
+| GET    | `/agent-applications/me`                       | Bearer | Aktif hesap | —                                | `AgentApplication`           | Güncel başvuru              |
+| PATCH  | `/agent-applications/me`                       | Bearer | Aktif hesap | `UpdateAgentApplicationRequest`  | `AgentApplication`           | Yalnız `DRAFT` güncelleme   |
+| POST   | `/agent-applications/me/submit`                | Bearer | `USER`      | —                                | `AgentApplication`, 200      | Taslağı incelemeye gönderir |
+| POST   | `/agent-applications/me/revise`                | Bearer | `USER`      | —                                | `AgentApplication`, 200      | `REJECTED` kaydı `DRAFT` yapar |
+| POST   | `/agent-applications/me/documents`             | Bearer | `USER`      | multipart `file`, `documentType` | `UploadedAgentDocument`, 201 | Yalnız `DRAFT` iken belge   |
+| GET    | `/agent-applications/me/documents`             | Bearer | Aktif hesap | —                                | `AgentApplicationDocument[]` | Güncel başvurunun belgeleri |
 | GET    | `/agent-applications/me/documents/:documentId` | Bearer | Sahip       | —                                | dosya akışı                  | Kendi belgesini indirir     |
 
 ## Agents
@@ -63,6 +65,7 @@ Auth sütunu:
 | Method | Path                       | Auth      | Role    | Request                     | Response                          | Purpose                    |
 | ------ | -------------------------- | --------- | ------- | --------------------------- | --------------------------------- | -------------------------- |
 | GET    | `/agents/me`               | Bearer    | `AGENT` | —                           | `AgentProfile`                    | Kendi profil               |
+| GET    | `/agents/me/files/:fileId` | Bearer    | `AGENT` | —                           | sahip logo akışı                  | Kendi mevcut logosu        |
 | PATCH  | `/agents/me`               | Bearer    | `AGENT` | `UpdateAgentProfileRequest` | `AgentProfile`                    | Profil güncelleme          |
 | POST   | `/agents/me/logo`          | Bearer    | `AGENT` | multipart `file`            | `AgentLogoResponse`, 201          | Logo                       |
 | GET    | `/agents/:slug/properties` | Opsiyonel | —       | `AgentPropertyListQuery`    | `PaginatedResponse<PropertyCard>` | Emlakçının public ilanları |
@@ -73,7 +76,8 @@ Auth sütunu:
 | Method | Path                                    | Auth      | Role    | Request                       | Response                            | Purpose                 |
 | ------ | --------------------------------------- | --------- | ------- | ----------------------------- | ----------------------------------- | ----------------------- |
 | POST   | `/properties`                           | Bearer    | `AGENT` | `CreatePropertyRequest`       | `PropertyRecord`, 201               | İlan oluşturur          |
-| GET    | `/properties/me`                        | Bearer    | `AGENT` | `MyPropertyListQuery`         | `PaginatedResponse<PropertyRecord>` | Kendi ilanları          |
+| GET    | `/properties/me`                        | Bearer    | `AGENT` | `MyPropertyListQuery`         | `PaginatedResponse<AgentPropertyListItem>` | Kendi ilanları          |
+| GET    | `/properties/me/files/:fileId`          | Bearer    | `AGENT` | —                             | sahip dosya akışı                   | Kendi ilan görseli      |
 | GET    | `/properties/me/:id`                    | Bearer    | `AGENT` | —                             | `OwnerPropertyDetail`               | Kendi ilan detayı       |
 | PATCH  | `/properties/:id`                       | Bearer    | `AGENT` | `UpdatePropertyRequest`       | `PropertyRecord`                    | Kendi ilanını günceller |
 | PATCH  | `/properties/:id/status`                | Bearer    | `AGENT` | `UpdatePropertyStatusRequest` | `PropertyRecord`                    | Durum geçişi            |
@@ -91,6 +95,7 @@ Auth sütunu:
 | ------ | -------------------------------------------- | ------ | ------ | -------------------------------- | ---------------------------------------- | -------------------------------- |
 | POST   | `/user-properties`                           | Bearer | `USER` | `CreatePropertyRequest`          | `UserPropertyRecord`, 201                | Bireysel ilan oluşturur          |
 | GET    | `/user-properties/me`                        | Bearer | `USER` | `MyPropertyListQuery`            | `PaginatedResponse<UserPropertyRecord>`  | Kendi bireysel ilanları          |
+| GET    | `/user-properties/me/files/:fileId`          | Bearer | `USER` | —                                | sahip dosya akışı                        | Kendi ilan görseli               |
 | GET    | `/user-properties/me/:id`                    | Bearer | `USER` | —                                | `UserPropertyDetail`                     | Kendi bireysel ilan detayı       |
 | PATCH  | `/user-properties/:id`                       | Bearer | `USER` | `UpdatePropertyRequest`          | `UserPropertyRecord`                     | Kendi ilanını günceller          |
 | PATCH  | `/user-properties/:id/status`                | Bearer | `USER` | `UpdateUserPropertyStatusRequest`| `UserPropertyRecord`                     | `ACTIVE` ↔ `INACTIVE`            |
@@ -112,15 +117,17 @@ Auth sütunu:
 
 | Method | Path                      | Auth   | Role    | Request               | Response                       | Purpose                  |
 | ------ | ------------------------- | ------ | ------- | --------------------- | ------------------------------ | ------------------------ |
-| GET    | `/admin/users`            | Bearer | `ADMIN` | `AdminUserListQuery`  | `PaginatedResponse<AdminUser>` | Kullanıcı listesi        |
-| GET    | `/admin/users/:id`        | Bearer | `ADMIN` | —                     | `AdminUserDetail`              | Kullanıcı detayı         |
-| PATCH  | `/admin/users/:id/status` | Bearer | `ADMIN` | `ActiveStatusRequest` | `ActiveStatusResponse`         | Hesabı açar veya kapatır |
+| GET    | `/admin/users`            | Bearer | `ADMIN` | `AdminUserListQuery`  | `PaginatedResponse<AdminUserListItem>` | Kullanıcı listesi        |
+| GET    | `/admin/users/summary`    | Bearer | `ADMIN` | `AdminUserSummaryQuery` | `AdminUserSummary`                   | Kullanıcı sayaç ve kayıt eğilimi |
+| GET    | `/admin/users/:id`        | Bearer | `ADMIN` | —                     | `AdminUserDetail`                      | Kullanıcı detayı         |
+| PATCH  | `/admin/users/:id/status` | Bearer | `ADMIN` | `ActiveStatusRequest` | `ActiveStatusResponse`                 | Hesabı açar veya kapatır |
 
 ## Admin Agent Applications
 
 | Method | Path                                                  | Auth   | Role    | Request                          | Response                                           | Purpose         |
 | ------ | ----------------------------------------------------- | ------ | ------- | -------------------------------- | -------------------------------------------------- | --------------- |
-| GET    | `/admin/agent-applications`                           | Bearer | `ADMIN` | `AdminAgentApplicationListQuery` | `PaginatedResponse<AdminAgentApplicationListItem>` | Başvuru listesi |
+| GET    | `/admin/agent-applications`                           | Bearer | `ADMIN` | `search`, `status`, `city`, `district`, `userId`, `createdFrom`, `createdTo`, `page`, `limit` | `PaginatedResponse<AdminAgentApplicationListItem>` | Başvuru listesi |
+| GET    | `/admin/agent-applications/summary`                   | Bearer | `ADMIN` | `createdFrom`, `createdTo`, `bucket` birlikte veya hiçbiri | `AdminAgentApplicationSummary` | Durum sayaçları ve oluşturulma serisi |
 | GET    | `/admin/agent-applications/:id`                       | Bearer | `ADMIN` | —                                | `AdminAgentApplication`                            | Başvuru detayı  |
 | GET    | `/admin/agent-applications/:id/documents`             | Bearer | `ADMIN` | —                                | `AgentApplicationDocument[]`                       | Belge listesi   |
 | GET    | `/admin/agent-applications/:id/documents/:documentId` | Bearer | `ADMIN` | —                                | dosya akışı                                        | Private belge   |
@@ -139,7 +146,7 @@ Auth sütunu:
 
 | Method | Path                                    | Auth   | Role    | Request                   | Response                           | Purpose            |
 | ------ | --------------------------------------- | ------ | ------- | ------------------------- | ---------------------------------- | ------------------ |
-| GET    | `/admin/properties`                     | Bearer | `ADMIN` | `AdminPropertyListQuery`  | `PaginatedResponse<AdminProperty>` | Moderasyon listesi |
+| GET    | `/admin/properties`                     | Bearer | `ADMIN` | `AdminPropertyListQuery` (`ownerUserId`, `agentUserId`) | `PaginatedResponse<AdminProperty>` | Moderasyon listesi |
 | GET    | `/admin/properties/:id`                 | Bearer | `ADMIN` | —                         | `AdminPropertyDetail`              | Moderasyon detayı  |
 | PATCH  | `/admin/properties/:id/deactivate`      | Bearer | `ADMIN` | `ModerationReasonRequest` | `PropertyRecord`                   | İlanı pasife alır  |
 | DELETE | `/admin/properties/:id/images/:imageId` | Bearer | `ADMIN` | —                         | `DeletedPropertyImageResponse`     | Fotoğraf siler     |

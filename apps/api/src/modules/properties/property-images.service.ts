@@ -15,6 +15,11 @@ import {
 } from '../../generated/prisma/enums';
 import { PrismaService } from '../../database/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import {
+  assertOwnedAgentProperty,
+  assertProfessionalAgent,
+  lockActiveAgent,
+} from '../agents/active-agent';
 import { publicFileUrl } from '../storage/public-file-url';
 import { StorageService } from '../storage/storage.service';
 
@@ -293,7 +298,7 @@ export class PropertyImagesService {
     kind: OwnerKind,
   ) {
     if (kind === 'agent') {
-      const profileId = await this.lockProfile(tx, userId);
+      const profileId = await lockActiveAgent(tx, userId);
       this.assertProperty(await this.lockProperty(tx, propertyId), {
         kind,
         profileId,
@@ -316,22 +321,28 @@ export class PropertyImagesService {
     if (kind === 'agent') {
       const profile = await this.prisma.agentProfile.findUnique({
         where: { userId },
-        select: { id: true, user: { select: { role: true, isActive: true } } },
+        select: {
+          id: true,
+          isActive: true,
+          user: { select: { role: true, isActive: true } },
+        },
       });
-
-      if (!profile || profile.user.role !== Role.AGENT) {
-        throw new ForbiddenException('Agent profile not found');
-      }
-
-      if (!profile.user.isActive) {
-        throw new UnauthorizedException('Unauthorized');
-      }
+      const profileId = assertProfessionalAgent(
+        profile
+          ? {
+              id: profile.id,
+              isActive: profile.isActive,
+              userActive: profile.user.isActive,
+              role: profile.user.role,
+            }
+          : undefined,
+      );
 
       const property = await this.prisma.property.findFirst({
         where: {
           id: propertyId,
           sellerType: PropertySellerType.AGENT,
-          agentProfileId: profile.id,
+          agentProfileId: profileId,
           deletedAt: null,
         },
         select: { id: true },
@@ -370,29 +381,6 @@ export class PropertyImagesService {
     if (!property) {
       throw new NotFoundException('Property not found');
     }
-  }
-
-  private async lockProfile(tx: Tx, userId: string) {
-    const rows = await tx.$queryRaw<
-      Array<{ id: string; userActive: boolean; role: string }>
-    >`
-      SELECT p.id, u."isActive" AS "userActive", u.role::text AS role
-      FROM agent_profiles p
-      JOIN users u ON u.id = p."userId"
-      WHERE p."userId" = ${userId}::uuid
-      FOR UPDATE OF p
-    `;
-    const row = rows[0];
-
-    if (!row || row.role !== Role.AGENT) {
-      throw new ForbiddenException('Agent profile not found');
-    }
-
-    if (!row.userActive) {
-      throw new UnauthorizedException('Unauthorized');
-    }
-
-    return row.id;
   }
 
   private async lockUser(tx: Tx, userId: string) {
@@ -454,13 +442,7 @@ export class PropertyImagesService {
     }
 
     if (scope.kind === 'agent') {
-      if (
-        row.sellerType !== PropertySellerType.AGENT ||
-        row.agentProfileId !== scope.profileId
-      ) {
-        throw new NotFoundException('Property not found');
-      }
-
+      assertOwnedAgentProperty(row, scope.profileId);
       return;
     }
 

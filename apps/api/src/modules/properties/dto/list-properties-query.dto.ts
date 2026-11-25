@@ -5,6 +5,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   Max,
   MaxLength,
@@ -135,6 +136,14 @@ export class ListAdminPropertiesQueryDto {
   @IsOptional()
   @IsIn(['true', 'false'])
   deleted?: 'true' | 'false';
+
+  @IsOptional()
+  @IsUUID()
+  ownerUserId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  agentUserId?: string;
 
   @IsOptional()
   @Type(() => Number)

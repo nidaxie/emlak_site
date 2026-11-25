@@ -11,6 +11,7 @@ import {
   AuditAction,
   FileCategory,
 } from '../../generated/prisma/enums';
+import { selectCurrentApplication } from './application-lifecycle';
 import { PrismaService } from '../../database/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { contentDisposition } from '../storage/file-policy';
@@ -48,12 +49,13 @@ export class AgentDocumentsService {
       throw new BadRequestException('File is required');
     }
 
-    const pending = await this.prisma.agentApplication.findFirst({
-      where: { userId, status: ApplicationStatus.PENDING },
+    const draft = await this.prisma.agentApplication.findFirst({
+      where: { userId, status: ApplicationStatus.DRAFT },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       select: { id: true },
     });
 
-    if (!pending) {
+    if (!draft) {
       const existing = await this.prisma.agentApplication.findFirst({
         where: { userId },
         select: { id: true },
@@ -63,22 +65,22 @@ export class AgentDocumentsService {
         throw new NotFoundException('Agent application not found');
       }
 
-      throw new ConflictException('Application is no longer pending');
+      throw new ConflictException('Application is not a draft');
     }
 
     const saved = await this.storage.save({
       category: categoryFor(documentType),
-      ownerId: pending.id,
+      ownerId: draft.id,
       originalName: file.originalname ?? 'document',
       bytes: file.buffer,
     });
 
     try {
       const result = await this.prisma.$transaction(async (tx) => {
-        const applicationId = await this.lockPending(tx, userId);
+        const applicationId = await this.lockDraft(tx, userId);
 
         if (!applicationId) {
-          throw new ConflictException('Application is no longer pending');
+          throw new ConflictException('Application is not a draft');
         }
 
         const current = await tx.agentApplicationDocument.findUnique({
@@ -160,11 +162,12 @@ export class AgentDocumentsService {
   }
 
   async listMine(userId: string) {
-    const application = await this.prisma.agentApplication.findFirst({
+    const applications = await this.prisma.agentApplication.findMany({
       where: { userId },
-      orderBy: { createdAt: 'desc' },
-      select: { id: true },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { id: true, status: true },
     });
+    const application = selectCurrentApplication(applications);
 
     if (!application) {
       throw new NotFoundException('Agent application not found');
@@ -241,12 +244,14 @@ export class AgentDocumentsService {
     };
   }
 
-  private async lockPending(tx: Tx, userId: string) {
+  private async lockDraft(tx: Tx, userId: string) {
     const rows = await tx.$queryRaw<Array<{ id: string }>>`
       SELECT id
       FROM agent_applications
       WHERE "userId" = ${userId}::uuid
-        AND status = 'PENDING'
+        AND status = 'DRAFT'
+      ORDER BY "createdAt" DESC, id DESC
+      LIMIT 1
       FOR UPDATE
     `;
 

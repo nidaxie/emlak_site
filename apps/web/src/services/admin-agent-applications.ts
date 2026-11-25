@@ -4,6 +4,8 @@ import type {
   AdminAgentApplication,
   AdminAgentApplicationListItem,
   AdminAgentApplicationListQuery,
+  AdminAgentApplicationSummary,
+  AdminAgentApplicationSummaryQuery,
   AgentApplicationApproval,
   AgentApplicationDocument,
   AgentApplicationRejection,
@@ -29,6 +31,17 @@ export const adminAgentApplicationsService = {
     assertApiModeForAdminApplications();
     return request<PaginatedResponse<AdminAgentApplicationListItem>>(
       `/admin/agent-applications${queryString(query)}`,
+      {},
+      { auth: true },
+    );
+  },
+
+  getApplicationSummary: (
+    query: AdminAgentApplicationSummaryQuery,
+  ): Promise<AdminAgentApplicationSummary> => {
+    assertApiModeForAdminApplications();
+    return request<AdminAgentApplicationSummary>(
+      `/admin/agent-applications/summary${queryString(query)}`,
       {},
       { auth: true },
     );

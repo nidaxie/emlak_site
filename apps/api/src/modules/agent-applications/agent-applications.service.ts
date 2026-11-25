@@ -9,7 +9,6 @@ import {
 } from '@nestjs/common';
 import { PrismaClient } from '../../generated/prisma/client';
 import {
-  AgentDocumentType,
   ApplicationStatus,
   AuditAction,
   Role,
@@ -18,6 +17,20 @@ import { PrismaService } from '../../database/prisma/prisma.service';
 import { allocateAgentSlug } from '../agents/agent-slug';
 import { AuditService } from '../audit/audit.service';
 import { blankToNull, normalizeEmail } from '../auth/normalize';
+import {
+  parseCreatedBound,
+  registrationPoints,
+} from '../users/admin-user-query';
+import {
+  applicationListWhere,
+  documentCompletion,
+} from './agent-application-query';
+import {
+  assertApplicationTransition,
+  hasRequiredAgentDocuments,
+  selectCurrentApplication,
+} from './application-lifecycle';
+import { AgentApplicationSummaryQueryDto } from './dto/agent-application-summary-query.dto';
 import { CreateAgentApplicationDto } from './dto/create-agent-application.dto';
 import { ListAgentApplicationsQueryDto } from './dto/list-agent-applications-query.dto';
 import { UpdateAgentApplicationDto } from './dto/update-agent-application.dto';
@@ -39,6 +52,7 @@ const ownApplicationSelect = {
   description: true,
   rejectionReason: true,
   reviewedAt: true,
+  submittedAt: true,
   createdAt: true,
   updatedAt: true,
 } as const;
@@ -52,6 +66,24 @@ const reviewSelect = {
   role: true,
   isActive: true,
   createdAt: true,
+} as const;
+
+const reviewerSelect = {
+  id: true,
+  firstName: true,
+  lastName: true,
+} as const;
+
+const liveDocumentSelect = {
+  where: { file: { deletedAt: null } },
+  select: { documentType: true },
+} as const;
+
+const profileLinkSelect = {
+  id: true,
+  slug: true,
+  companyName: true,
+  isActive: true,
 } as const;
 
 @Injectable()
@@ -76,13 +108,35 @@ export class AgentApplicationsService {
           throw new ForbiddenException('Forbidden');
         }
 
-        const pending = await tx.agentApplication.findFirst({
-          where: { userId, status: ApplicationStatus.PENDING },
+        const profile = await tx.agentProfile.findUnique({
+          where: { userId },
           select: { id: true },
         });
 
-        if (pending) {
+        if (profile) {
+          throw new ConflictException('Agent profile already exists');
+        }
+
+        const existing = await tx.agentApplication.findMany({
+          where: { userId },
+          select: { status: true },
+        });
+        const statuses = new Set(existing.map((row) => row.status));
+
+        if (statuses.has(ApplicationStatus.PENDING)) {
           throw new ConflictException('Pending application already exists');
+        }
+
+        if (statuses.has(ApplicationStatus.DRAFT)) {
+          throw new ConflictException('Draft application already exists');
+        }
+
+        if (statuses.has(ApplicationStatus.APPROVED)) {
+          throw new ConflictException('Application is already approved');
+        }
+
+        if (statuses.has(ApplicationStatus.REJECTED)) {
+          throw new ConflictException('Rejected application can be revised');
         }
 
         return tx.agentApplication.create({
@@ -98,13 +152,15 @@ export class AgentApplicationsService {
             district: dto.district,
             address: dto.address,
             description: blankToNull(dto.description) ?? null,
+            status: ApplicationStatus.DRAFT,
+            submittedAt: null,
           },
           select: ownApplicationSelect,
         });
       });
     } catch (error) {
       if (isUniqueViolation(error)) {
-        throw new ConflictException('Pending application already exists');
+        throw new ConflictException('Draft application already exists');
       }
 
       throw error;
@@ -112,11 +168,12 @@ export class AgentApplicationsService {
   }
 
   async getMine(userId: string) {
-    const application = await this.prisma.agentApplication.findFirst({
+    const applications = await this.prisma.agentApplication.findMany({
       where: { userId },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       select: ownApplicationSelect,
     });
+    const application = selectCurrentApplication(applications);
 
     if (!application) {
       throw new NotFoundException('Agent application not found');
@@ -133,9 +190,9 @@ export class AgentApplicationsService {
     }
 
     return this.prisma.$transaction(async (tx) => {
-      const pendingId = await this.lockPendingApplication(tx, userId);
+      const draftId = await this.lockDraftApplication(tx, userId);
 
-      if (!pendingId) {
+      if (!draftId) {
         const existing = await tx.agentApplication.findFirst({
           where: { userId },
           select: { id: true },
@@ -145,12 +202,103 @@ export class AgentApplicationsService {
           throw new NotFoundException('Agent application not found');
         }
 
-        throw new ConflictException('Application is no longer pending');
+        throw new ConflictException('Application is not a draft');
       }
 
       return tx.agentApplication.update({
-        where: { id: pendingId },
+        where: { id: draftId },
         data,
+        select: ownApplicationSelect,
+      });
+    });
+  }
+
+  async submit(userId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const user = await this.lockUser(tx, userId);
+
+      if (!user.isActive) {
+        throw new UnauthorizedException('Unauthorized');
+      }
+
+      if (user.role !== Role.USER) {
+        throw new ForbiddenException('Forbidden');
+      }
+
+      const draftId = await this.lockDraftApplication(tx, userId);
+
+      if (!draftId) {
+        const existing = await tx.agentApplication.findFirst({
+          where: { userId },
+          select: { status: true },
+        });
+
+        if (!existing) {
+          throw new NotFoundException('Agent application not found');
+        }
+
+        assertApplicationTransition(
+          existing.status,
+          ApplicationStatus.PENDING,
+          'Application is not a draft',
+        );
+        throw new ConflictException('Application is not a draft');
+      }
+
+      const snapshot = await tx.agentApplication.findUniqueOrThrow({
+        where: { id: draftId },
+      });
+      assertSubmittable(snapshot);
+      await this.assertRequiredDocuments(tx, draftId);
+
+      return tx.agentApplication.update({
+        where: { id: draftId },
+        data: {
+          status: ApplicationStatus.PENDING,
+          submittedAt: new Date(),
+          rejectionReason: null,
+          reviewedById: null,
+          reviewedAt: null,
+        },
+        select: ownApplicationSelect,
+      });
+    });
+  }
+
+  async revise(userId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const user = await this.lockUser(tx, userId);
+
+      if (!user.isActive) {
+        throw new UnauthorizedException('Unauthorized');
+      }
+
+      if (user.role !== Role.USER) {
+        throw new ForbiddenException('Forbidden');
+      }
+
+      const locked = await this.lockApplications(tx, userId);
+      const current = selectCurrentApplication(locked);
+
+      if (!current) {
+        throw new NotFoundException('Agent application not found');
+      }
+
+      assertApplicationTransition(
+        current.status,
+        ApplicationStatus.DRAFT,
+        'Application is not rejected',
+      );
+
+      return tx.agentApplication.update({
+        where: { id: current.id },
+        data: {
+          status: ApplicationStatus.DRAFT,
+          submittedAt: null,
+          rejectionReason: null,
+          reviewedById: null,
+          reviewedAt: null,
+        },
         select: ownApplicationSelect,
       });
     });
@@ -159,35 +307,104 @@ export class AgentApplicationsService {
   async listForAdmin(query: ListAgentApplicationsQueryDto) {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
-    const where = query.status ? { status: query.status } : {};
+    const where = applicationListWhere(query);
+    const orderBy =
+      query.status === ApplicationStatus.PENDING
+        ? [
+            { submittedAt: { sort: 'desc' as const, nulls: 'last' as const } },
+            { id: 'desc' as const },
+          ]
+        : [{ createdAt: 'desc' as const }, { id: 'desc' as const }];
 
-    const [items, total] = await Promise.all([
+    const [rows, total] = await Promise.all([
       this.prisma.agentApplication.findMany({
         where,
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        orderBy,
         skip: (page - 1) * limit,
         take: limit,
         select: {
           id: true,
           status: true,
           companyName: true,
+          phone: true,
+          email: true,
           city: true,
           district: true,
           createdAt: true,
+          submittedAt: true,
+          reviewedAt: true,
           user: {
             select: {
               id: true,
+              firstName: true,
+              lastName: true,
               email: true,
               role: true,
               isActive: true,
             },
           },
+          reviewedBy: { select: reviewerSelect },
+          documents: liveDocumentSelect,
         },
       }),
       this.prisma.agentApplication.count({ where }),
     ]);
 
-    return { items, page, limit, total };
+    return {
+      items: rows.map(({ documents, ...item }) => ({
+        ...item,
+        documentCompletion: documentCompletion(
+          documents.map((document) => document.documentType),
+        ),
+      })),
+      page,
+      limit,
+      total,
+    };
+  }
+
+  async summary(query: AgentApplicationSummaryQueryDto) {
+    const grouped = await this.prisma.agentApplication.groupBy({
+      by: ['status'],
+      _count: { _all: true },
+    });
+    const statuses = {
+      DRAFT: 0,
+      PENDING: 0,
+      APPROVED: 0,
+      REJECTED: 0,
+    };
+
+    for (const row of grouped) {
+      statuses[row.status] = row._count._all;
+    }
+
+    const oldest = await this.prisma.agentApplication.findFirst({
+      where: {
+        status: ApplicationStatus.PENDING,
+        submittedAt: { not: null },
+      },
+      orderBy: [{ submittedAt: 'asc' }, { id: 'asc' }],
+      select: { id: true, submittedAt: true },
+    });
+    const submittedAt = oldest?.submittedAt ?? null;
+
+    return {
+      total:
+        statuses.DRAFT +
+        statuses.PENDING +
+        statuses.APPROVED +
+        statuses.REJECTED,
+      statuses,
+      oldestPending: submittedAt
+        ? {
+            id: oldest!.id,
+            submittedAt: submittedAt.toISOString(),
+            waitingMs: Date.now() - submittedAt.getTime(),
+          }
+        : null,
+      created: await this.createdSeries(query),
+    };
   }
 
   async getForAdmin(id: string) {
@@ -197,7 +414,14 @@ export class AgentApplicationsService {
         ...ownApplicationSelect,
         userId: true,
         reviewedById: true,
-        user: { select: reviewSelect },
+        user: {
+          select: {
+            ...reviewSelect,
+            agentProfile: { select: profileLinkSelect },
+          },
+        },
+        reviewedBy: { select: reviewerSelect },
+        documents: liveDocumentSelect,
       },
     });
 
@@ -205,7 +429,18 @@ export class AgentApplicationsService {
       throw new NotFoundException('Agent application not found');
     }
 
-    return application;
+    const { documents, user, ...rest } = application;
+    const { agentProfile, ...applicant } = user;
+
+    return {
+      ...rest,
+      user: applicant,
+      documentCompletion: documentCompletion(
+        documents.map((document) => document.documentType),
+      ),
+      agentProfile:
+        application.status === ApplicationStatus.APPROVED ? agentProfile : null,
+    };
   }
 
   async approve(id: string, adminId: string) {
@@ -240,9 +475,11 @@ export class AgentApplicationsService {
         throw new NotFoundException('Agent application not found');
       }
 
-      if (application.status !== ApplicationStatus.PENDING) {
-        throw new ConflictException('Application is no longer pending');
-      }
+      assertApplicationTransition(
+        application.status as ApplicationStatus,
+        ApplicationStatus.APPROVED,
+        'Application is no longer pending',
+      );
 
       const user = await this.lockUser(tx, application.userId);
 
@@ -272,18 +509,7 @@ export class AgentApplicationsService {
         throw new ConflictException('Agent profile already exists');
       }
 
-      const documents = await tx.agentApplicationDocument.findMany({
-        where: { applicationId: application.id, file: { deletedAt: null } },
-        select: { documentType: true },
-      });
-      const documentTypes = new Set(documents.map((item) => item.documentType));
-
-      if (
-        !documentTypes.has(AgentDocumentType.TAX_CERTIFICATE) ||
-        !documentTypes.has(AgentDocumentType.AUTHORIZATION_CERTIFICATE)
-      ) {
-        throw new ConflictException('Required documents are missing');
-      }
+      await this.assertRequiredDocuments(tx, application.id);
 
       const snapshot = await tx.agentApplication.findUniqueOrThrow({
         where: { id: application.id },
@@ -331,14 +557,22 @@ export class AgentApplicationsService {
         select: { id: true, role: true },
       });
 
-      const updatedApplication = await tx.agentApplication.update({
-        where: { id: application.id },
+      const decision = await tx.agentApplication.updateMany({
+        where: { id: application.id, status: ApplicationStatus.PENDING },
         data: {
           status: ApplicationStatus.APPROVED,
           reviewedById: adminId,
           reviewedAt: new Date(),
           rejectionReason: null,
         },
+      });
+
+      if (decision.count !== 1) {
+        throw new ConflictException('Application is no longer pending');
+      }
+
+      const updatedApplication = await tx.agentApplication.findUniqueOrThrow({
+        where: { id: application.id },
         select: {
           id: true,
           status: true,
@@ -372,9 +606,11 @@ export class AgentApplicationsService {
         throw new NotFoundException('Agent application not found');
       }
 
-      if (locked.status !== ApplicationStatus.PENDING) {
-        throw new ConflictException('Application is no longer pending');
-      }
+      assertApplicationTransition(
+        locked.status as ApplicationStatus,
+        ApplicationStatus.REJECTED,
+        'Application is no longer pending',
+      );
 
       const reviewer = await tx.user.findUnique({
         where: { id: adminId },
@@ -385,14 +621,22 @@ export class AgentApplicationsService {
         throw new ForbiddenException('Forbidden');
       }
 
-      const application = await tx.agentApplication.update({
-        where: { id: locked.id },
+      const decision = await tx.agentApplication.updateMany({
+        where: { id: locked.id, status: ApplicationStatus.PENDING },
         data: {
           status: ApplicationStatus.REJECTED,
           rejectionReason: reason,
           reviewedById: adminId,
           reviewedAt: new Date(),
         },
+      });
+
+      if (decision.count !== 1) {
+        throw new ConflictException('Application is no longer pending');
+      }
+
+      const application = await tx.agentApplication.findUniqueOrThrow({
+        where: { id: locked.id },
         select: {
           id: true,
           status: true,
@@ -453,16 +697,127 @@ export class AgentApplicationsService {
     return rows[0] ?? null;
   }
 
-  private async lockPendingApplication(tx: Tx, userId: string) {
+  private async lockDraftApplication(tx: Tx, userId: string) {
     const rows = await tx.$queryRaw<Array<{ id: string }>>`
       SELECT id
       FROM agent_applications
       WHERE "userId" = ${userId}::uuid
-        AND status = 'PENDING'
+        AND status = 'DRAFT'
+      ORDER BY "createdAt" DESC, id DESC
+      LIMIT 1
       FOR UPDATE
     `;
 
     return rows[0]?.id ?? null;
+  }
+
+  private async lockApplications(tx: Tx, userId: string) {
+    return tx.$queryRaw<
+      Array<{ id: string; status: ApplicationStatus; createdAt: Date }>
+    >`
+      SELECT id, status::text AS status, "createdAt"
+      FROM agent_applications
+      WHERE "userId" = ${userId}::uuid
+      ORDER BY "createdAt" DESC, id DESC
+      FOR UPDATE
+    `;
+  }
+
+  private async createdSeries(query: AgentApplicationSummaryQueryDto) {
+    if (!query.createdFrom && !query.createdTo && !query.bucket) {
+      return null;
+    }
+
+    if (!query.createdFrom || !query.createdTo || !query.bucket) {
+      throw new BadRequestException(
+        'createdFrom, createdTo, and bucket are required together',
+      );
+    }
+
+    const from = parseCreatedBound(query.createdFrom, 'start');
+    const to = parseCreatedBound(query.createdTo, 'end');
+
+    if (!from || !to) {
+      throw new BadRequestException('Invalid date');
+    }
+
+    if (from.getTime() > to.getTime()) {
+      throw new BadRequestException('createdFrom must not be after createdTo');
+    }
+
+    const rows = await this.prisma.$queryRaw<
+      Array<{ bucket: string; count: number }>
+    >`
+      SELECT to_char(
+               date_trunc(${query.bucket}::text, "createdAt"),
+               'YYYY-MM-DD"T"HH24:MI:SS"Z"'
+             ) AS bucket,
+             COUNT(*)::int AS count
+      FROM agent_applications
+      WHERE "createdAt" >= ${from} AND "createdAt" <= ${to}
+      GROUP BY 1
+      ORDER BY 1
+    `;
+    const points = registrationPoints(from, to, query.bucket, rows);
+
+    if (!points) {
+      throw new BadRequestException(
+        query.bucket === 'day'
+          ? 'Day range cannot exceed 366 days'
+          : 'Month range cannot exceed 36 months',
+      );
+    }
+
+    return {
+      from: from.toISOString(),
+      to: to.toISOString(),
+      bucket: query.bucket,
+      total: points.reduce((sum, point) => sum + point.count, 0),
+      points,
+    };
+  }
+
+  private async assertRequiredDocuments(tx: Tx, applicationId: string) {
+    const documents = await tx.agentApplicationDocument.findMany({
+      where: { applicationId, file: { deletedAt: null } },
+      select: { documentType: true },
+    });
+
+    if (
+      !hasRequiredAgentDocuments(
+        new Set(documents.map((item) => item.documentType)),
+      )
+    ) {
+      throw new ConflictException('Required documents are missing');
+    }
+  }
+}
+
+function assertSubmittable(application: {
+  companyName: string;
+  authorizedFirstName: string;
+  authorizedLastName: string;
+  phone: string;
+  email: string;
+  taxNumber: string;
+  city: string;
+  district: string;
+  address: string;
+}) {
+  const required = [
+    application.companyName,
+    application.authorizedFirstName,
+    application.authorizedLastName,
+    application.phone,
+    application.email,
+    application.taxNumber,
+    application.city,
+    application.district,
+    application.address,
+  ];
+
+  if (required.some((value) => value.trim() === '')) {
+    throw new BadRequestException('Application is incomplete');
   }
 }
 

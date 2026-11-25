@@ -45,6 +45,7 @@ export const labels: Record<string, string> = {
   INACTIVE: 'Pasif',
   SOLD: 'Satıldı',
   RENTED: 'Kiralandı',
+  DRAFT: 'Taslak',
   PENDING: 'İnceleniyor',
   APPROVED: 'Onaylandı',
   REJECTED: 'Reddedildi',
@@ -133,10 +134,12 @@ export function PropertyCardView({
             {property.neighborhood}, {property.district}, {property.city}
           </p>
           <div className="mt-4 flex items-center gap-4 border-t border-border pt-3 text-xs text-muted-foreground">
-            <span className="flex items-center gap-1">
-              <BedDouble size={14} />
-              {property.rooms}+{property.livingRooms}
-            </span>
+            {property.propertyType !== 'LAND' && (
+              <span className="flex items-center gap-1">
+                <BedDouble size={14} />
+                {property.rooms}+{property.livingRooms}
+              </span>
+            )}
             <span className="flex items-center gap-1">
               <Ruler size={14} />
               {area(property.grossAreaM2)} m²

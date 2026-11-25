@@ -4,6 +4,7 @@ import { propertyImagesService } from '@/services/property-images';
 import type {
   AdminProperty,
   AdminPropertyDetail,
+  AgentPropertyListItem,
   AdminPropertyListQuery,
   CreatePropertyRequest,
   DeletePropertyResponse,
@@ -49,9 +50,9 @@ export const propertiesService = {
 
   getMyProperties: (
     query: MyPropertyListQuery,
-  ): Promise<PaginatedResponse<PropertyRecord>> => {
+  ): Promise<PaginatedResponse<AgentPropertyListItem>> => {
     assertApiModeForAgentProperties();
-    return request<PaginatedResponse<PropertyRecord>>(
+    return request<PaginatedResponse<AgentPropertyListItem>>(
       `/properties/me${queryString(query)}`,
       {},
       { auth: true },

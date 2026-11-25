@@ -15,6 +15,7 @@ enum Role {
 }
 
 enum ApplicationStatus {
+  DRAFT
   PENDING
   APPROVED
   REJECTED
@@ -29,6 +30,9 @@ model User {
   phone                String?
   role                 Role               @default(USER)
   isActive             Boolean            @default(true)
+  // Bumped only when an active account is deactivated. Access tokens carry
+  // this integer. Reactivation does not move it backward.
+  tokenVersion         Int                @default(0)
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
   sessions             AuthSession[]
@@ -57,8 +61,9 @@ model AuthSession {
 
 // Application email is the firm contact captured at submission time.
 // It is independent of the account email and stays as a historical snapshot.
-// One PENDING row per user is enforced by a partial unique index in SQL.
-// Prisma cannot express that predicate, so the migration owns the constraint.
+// One PENDING row per user, and one open DRAFT or PENDING row per user,
+// are partial unique indexes in SQL. Prisma cannot express those predicates.
+// submittedAt stays null while the row is DRAFT and is set when it is submitted.
 model AgentApplication {
   id                  String            @id @default(uuid()) @db.Uuid
   userId              String            @db.Uuid
@@ -72,7 +77,8 @@ model AgentApplication {
   district            String
   address             String
   description         String?
-  status              ApplicationStatus @default(PENDING)
+  status              ApplicationStatus @default(DRAFT)
+  submittedAt         DateTime?
   rejectionReason     String?
   reviewedById        String?           @db.Uuid
   reviewedAt          DateTime?

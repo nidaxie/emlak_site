@@ -19,6 +19,7 @@ import { Role } from '../../generated/prisma/enums';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AgentApplicationsService } from './agent-applications.service';
 import { AgentDocumentsService } from './agent-documents.service';
+import { AgentApplicationSummaryQueryDto } from './dto/agent-application-summary-query.dto';
 import { ListAgentApplicationsQueryDto } from './dto/list-agent-applications-query.dto';
 import { RejectAgentApplicationDto } from './dto/reject-agent-application.dto';
 
@@ -34,6 +35,11 @@ export class AdminAgentApplicationsController {
   @Get()
   list(@Query() query: ListAgentApplicationsQueryDto) {
     return this.applications.listForAdmin(query);
+  }
+
+  @Get('summary')
+  summary(@Query() query: AgentApplicationSummaryQueryDto) {
+    return this.applications.summary(query);
   }
 
   @Get(':id')

@@ -6,6 +6,7 @@ import {
 import { randomUUID } from 'node:crypto';
 import { PublicUser, toPublicUser } from '../../common/auth/public-user';
 import { PrismaService } from '../../database/prisma/prisma.service';
+import { PrismaClient } from '../../generated/prisma/client';
 import { Role } from '../../generated/prisma/enums';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -18,6 +19,15 @@ import {
 import { TokenService } from './token.service';
 
 const invalidCredentials = 'Invalid email or password';
+
+type Tx = Parameters<Parameters<PrismaClient['$transaction']>[0]>[0];
+
+type LockedAccount = {
+  id: string;
+  role: Role;
+  isActive: boolean;
+  tokenVersion: number;
+};
 
 @Injectable()
 export class AuthService {
@@ -71,18 +81,32 @@ export class AuthService {
     }
 
     const issued = this.issueRefresh(user.id);
-    await this.prisma.authSession.create({
-      data: {
-        id: issued.sessionId,
-        userId: user.id,
-        refreshTokenHash: issued.refreshTokenHash,
-        expiresAt: issued.expiresAt,
-      },
+    const locked = await this.prisma.$transaction(async (tx) => {
+      const account = await this.lockAccount(tx, user.id);
+
+      if (!account || !account.isActive) {
+        throw new UnauthorizedException(invalidCredentials);
+      }
+
+      await tx.authSession.create({
+        data: {
+          id: issued.sessionId,
+          userId: account.id,
+          refreshTokenHash: issued.refreshTokenHash,
+          expiresAt: issued.expiresAt,
+        },
+      });
+
+      return account;
     });
 
     return {
-      user: toPublicUser(user),
-      accessToken: this.tokens.signAccess({ sub: user.id, role: user.role }),
+      user: toPublicUser({ ...user, role: locked.role, isActive: true }),
+      accessToken: this.tokens.signAccess({
+        sub: locked.id,
+        role: locked.role,
+        ver: locked.tokenVersion,
+      }),
       refreshToken: issued.refreshToken,
     };
   }
@@ -90,8 +114,13 @@ export class AuthService {
   async refresh(refreshToken: string | undefined) {
     const current = await this.readActiveSession(refreshToken);
     const issued = this.issueRefresh(current.user.id);
+    const locked = await this.prisma.$transaction(async (tx) => {
+      const account = await this.lockAccount(tx, current.user.id);
 
-    await this.prisma.$transaction(async (tx) => {
+      if (!account || !account.isActive) {
+        throw new UnauthorizedException('Unauthorized');
+      }
+
       const revoked = await tx.authSession.updateMany({
         where: { id: current.session.id, revokedAt: null },
         data: { revokedAt: new Date() },
@@ -104,18 +133,25 @@ export class AuthService {
       await tx.authSession.create({
         data: {
           id: issued.sessionId,
-          userId: current.user.id,
+          userId: account.id,
           refreshTokenHash: issued.refreshTokenHash,
           expiresAt: issued.expiresAt,
         },
       });
+
+      return account;
     });
 
     return {
-      user: toPublicUser(current.user),
+      user: toPublicUser({
+        ...current.user,
+        role: locked.role,
+        isActive: true,
+      }),
       accessToken: this.tokens.signAccess({
-        sub: current.user.id,
-        role: current.user.role,
+        sub: locked.id,
+        role: locked.role,
+        ver: locked.tokenVersion,
       }),
       refreshToken: issued.refreshToken,
     };
@@ -128,6 +164,43 @@ export class AuthService {
       where: { id: current.session.id, revokedAt: null },
       data: { revokedAt: new Date() },
     });
+  }
+
+  private async lockAccount(
+    tx: Tx,
+    userId: string,
+  ): Promise<LockedAccount | null> {
+    const rows = await tx.$queryRaw<
+      Array<{
+        id: string;
+        role: string;
+        isActive: boolean;
+        tokenVersion: number;
+      }>
+    >`
+      SELECT id, role::text AS role, "isActive", "tokenVersion"
+      FROM users
+      WHERE id = ${userId}::uuid
+      FOR UPDATE
+    `;
+    const row = rows[0];
+
+    if (!row || !isAccountRole(row.role)) {
+      return null;
+    }
+
+    const tokenVersion = Number(row.tokenVersion);
+
+    if (!Number.isInteger(tokenVersion) || tokenVersion < 0) {
+      return null;
+    }
+
+    return {
+      id: row.id,
+      role: row.role,
+      isActive: row.isActive,
+      tokenVersion,
+    };
   }
 
   private issueRefresh(userId: string) {
@@ -182,6 +255,10 @@ const publicUserSelect = {
   isActive: true,
   createdAt: true,
 } as const;
+
+function isAccountRole(value: string): value is Role {
+  return value === Role.USER || value === Role.AGENT || value === Role.ADMIN;
+}
 
 function isUniqueViolation(error: unknown) {
   return (

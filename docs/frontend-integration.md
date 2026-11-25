@@ -68,7 +68,7 @@ Kurallar:
 - Access token cookie değildir. Bellekte tutulur ve korumalı isteklere Bearer olarak eklenir.
 - Access token süresi `JWT_ACCESS_EXPIRES_IN` ile ayarlanır. `.env.example` development değeri `15m` dir. Production süresi buradan tahmin edilmez.
 - Refresh, veritabanındaki güncel rolü yeni access token'a yazar. Onaydan sonra eski token hâlâ `USER` taşıyabilir. Agent endpoint'inden önce refresh veya yeniden login gerekir.
-- Logout refresh oturumunu kapatır ve cookie'yi siler. Frontend elindeki access token'ı da bellekten atmalıdır. Eski access token süre dolana kadar imza olarak geçerli görünebilir, fakat pasifleştirme ve logout sonrası guard kullanıcıyı tekrar okur. Logout tek başına o access token'ın imzasını anında geçersiz kılmaz. Yeni korumalı çağrı yapmadan önce token bellekten silinir.
+- Logout refresh oturumunu kapatır ve cookie'yi siler. Frontend elindeki access token'ı da bellekten atmalıdır. Logout `tokenVersion` artırmaz; eski access token süre dolana kadar imza olarak geçerli kalabilir. Pasife alma `User.tokenVersion` değerini bir artırır. Access token bu değeri `ver` claim'i ile taşır. Claim yoksa guard onu 0 kabul eder. Yeniden aktif etme sürümü geri almaz, bu yüzden pasife almadan önceki access ve refresh tokenlar 401 kalır.
 - Pasif kullanıcı login, refresh ve Bearer isteğinde 401 alır.
 
 Süre dolunca önerilen akış bölüm 14'tedir.
@@ -175,7 +175,7 @@ Kayıt sonrası varsayılan roldür. Public site, kendi profili, favoriler ve em
 
 ### AGENT
 
-Kendi emlakçı profilini, logosunu ve ilanlarını yönetir. Fotoğraf yükler. Favori de kullanabilir. Başvuru oluşturma endpoint'i 403 döner. Public profil pasif olsa da kendi profilini ve logosunu yönetebilir. Yeni ilan, profil `isActive` değilse 403 `Agent profile is inactive` döner.
+Kendi emlakçı profilini, logosunu ve ilanlarını yönetir. Fotoğraf yükler. Favori de kullanabilir. Başvuru oluşturma endpoint'i 403 döner. Profesyonel yazma işlemleri `AGENT` rolü, mevcut profil ve `AgentProfile.isActive = true` ister. Profil yoksa 403 `Agent profile not found` döner. Profil askıdaysa profil güncelleme, logo, ilan oluşturma, güncelleme, durum, silme ve fotoğraf mutation'ları 403 `Agent profile is inactive` döner. `GET /agents/me` ve kendi ilan listesi bu durumda açık kalır. Başka emlakçının ilanı 404 `Property not found` döner.
 
 ### ADMIN
 
@@ -266,7 +266,7 @@ Role
 USER | AGENT | ADMIN
 
 ApplicationStatus
-PENDING | APPROVED | REJECTED
+DRAFT | PENDING | APPROVED | REJECTED
 
 ListingType
 SALE | RENT
@@ -557,11 +557,13 @@ Arama filtresi ID değil `city`, `district` ve `neighborhood` adlarını kullan�
 
 | Endpoint                                           | Rol         | Kural                                                            |
 | -------------------------------------------------- | ----------- | ---------------------------------------------------------------- |
-| `POST /agent-applications`                         | `USER`      | 201, `AgentApplication`                                          |
-| `GET /agent-applications/me`                       | Aktif hesap | Son başvuruyu döner. Yoksa 404                                   |
-| `PATCH /agent-applications/me`                     | Aktif hesap | Yalnız `PENDING`. Değilse 409 `Application is no longer pending` |
-| `POST /agent-applications/me/documents`            | `USER`      | `PENDING` iken ekler veya aynı tipi değiştirir                   |
-| `GET /agent-applications/me/documents`             | Aktif hesap | Son başvurunun belge dizisi                                      |
+| `POST /agent-applications`                         | `USER`      | 201, `DRAFT`, `submittedAt: null`                                |
+| `GET /agent-applications/me`                       | Aktif hesap | Güncel başvuruyu döner. Yoksa 404                                |
+| `PATCH /agent-applications/me`                     | Aktif hesap | Yalnız `DRAFT`. Değilse 409 `Application is not a draft`         |
+| `POST /agent-applications/me/submit`               | `USER`      | Yalnız `DRAFT`. 200 ile `PENDING` ve `submittedAt`               |
+| `POST /agent-applications/me/revise`               | `USER`      | Yalnız `REJECTED`. 200 ile aynı kayıt `DRAFT`                    |
+| `POST /agent-applications/me/documents`            | `USER`      | `DRAFT` iken ekler veya aynı tipi değiştirir                     |
+| `GET /agent-applications/me/documents`             | Aktif hesap | Güncel başvurunun belge dizisi                                   |
 | `GET /agent-applications/me/documents/:documentId` | Sahip       | Dosya akışı. Başkasının belgesi 404                              |
 
 Oluşturma gövdesi:
@@ -583,11 +585,17 @@ Oluşturma gövdesi:
 
 `taxNumber` 10 veya 11 rakamdır. `description` opsiyoneldir. Bu şehir ve ilçe serbest metindir, lokasyon ID'si değildir.
 
-Bir kullanıcının aynı anda tek `PENDING` başvurusu olabilir. İkincisi 409 döner. Onay ve red eski belgeleri o başvuruda bırakır. Yeni başvuru dosyaları kopyalamaz.
+`POST /agent-applications` başvuruyu `DRAFT` açar. `submittedAt` bu aşamada `null` olur. İncelemeye gönderme `POST /agent-applications/me/submit` ile yapılır. Submit, kayıt `DRAFT` iken ve silinmemiş `TAX_CERTIFICATE` ile `AUTHORIZATION_CERTIFICATE` birlikte varken `PENDING` yazar ve `submittedAt` doldurur. Eski `rejectionReason`, `reviewedById` ve `reviewedAt` bu geçişte temizlenir. Belge eksiği 409 `Required documents are missing` döner ve kayıt `DRAFT` kalır.
 
-Onay için `TAX_CERTIFICATE` ve `AUTHORIZATION_CERTIFICATE` birlikte olmalıdır. Eksikte admin onayı 409 `Required documents are missing` döner.
+Güncelleme ve belge yükleme yalnız `DRAFT` kayda uygulanır. `PENDING` kayıt 409 `Application is not a draft` döner. Belge silme endpointi yoktur; aynı `documentType` yeniden yüklenince belge değişir.
 
-Kendi başvuru yanıtında `userId` ve `reviewedById` yoktur. `description` ve `rejectionReason` `null` olabilir. `reviewedAt` incelemeden önce `null` olur.
+`GET /agent-applications/me` güncel kaydı seçer. Sıra, `createdAt` azalan, eşitse `id` azalandır. Önce `PENDING`, yoksa `DRAFT`, ikisi de yoksa en yeni kayıt döner. Kayıt yoksa 404.
+
+Aynı kullanıcıda açık bir `DRAFT` veya `PENDING` varken yeni başvuru 409 döner. `REJECTED` kayıt varken `POST /agent-applications` yeni satır açmaz; 409 `Rejected application can be revised` döner. `POST /agent-applications/me/revise` aynı satırı `DRAFT` yapar, `submittedAt` ve inceleme alanlarını temizler, belgeleri bırakır.
+
+Onay için de `TAX_CERTIFICATE` ve `AUTHORIZATION_CERTIFICATE` birlikte olmalıdır. Eksikte admin onayı 409 `Required documents are missing` döner.
+
+Kendi başvuru yanıtında `userId` ve `reviewedById` yoktur. `description`, `rejectionReason` ve `submittedAt` `null` olabilir. `reviewedAt` incelemeden önce `null` olur.
 
 Belge listesi:
 
@@ -630,9 +638,11 @@ address
 description
 ```
 
-Slug, vergi numarası, şehir, ilçe ve `isActive` bu endpoint ile değişmez. Boş gövde 400 `No fields to update` döner.
+Slug, vergi numarası, şehir, ilçe ve `isActive` bu endpoint ile değişmez. Boş gövde 400 `No fields to update` döner. Profil askıdaysa `PATCH` 403 `Agent profile is inactive` döner. Profil yoksa 403 `Agent profile not found` döner. `GET /agents/me` askıdaki profili 200 ile döndürür ve `isActive: false` görünür. Bu sahip yanıtındaki `logoUrl`, logo varsa `/api/v1/agents/me/files/<uuid>` olur. Public profil ve logo yükleme yanıtı `/api/v1/files/<uuid>` olarak kalır.
 
-Logo `multipart` alan adı `file` dir. Yanıt `{ "logoUrl": "/api/v1/files/..." }` olur. Profil pasif olsa da logo yüklenebilir.
+Logo `multipart` alan adı `file` dir. Yükleme yanıtı `{ "logoUrl": "/api/v1/files/..." }` olur. Profil askıdaysa logo yükleme 403 `Agent profile is inactive` döner.
+
+`GET /agents/me/files/:fileId` yalnız oturumdaki emlakçının mevcut logosunu okur. Askıdaki profil de bu salt okuma yolunu kullanır. Başka hesap, eski logo ve silinmiş dosya 404 `File not found` döner. `USER` 403, oturumsuz istek 401 alır. Yanıt `Cache-Control: private, no-store` taşır. Public `/files/:id` kuralı değişmez: askıdaki logo orada 404 kalır.
 
 # 8. Property management
 
@@ -641,17 +651,20 @@ Gerçek route'lar:
 ```text
 POST   /properties
 GET    /properties/me
+GET    /properties/me/files/:fileId
 GET    /properties/me/:id
 PATCH  /properties/:id
 PATCH  /properties/:id/status
 DELETE /properties/:id
 ```
 
-Hepsi `AGENT` ve Bearer ister. Başka emlakçının ilanı 404 `Property not found` döner.
+Hepsi `AGENT` ve Bearer ister. Yazma işlemleri ayrıca aktif `AgentProfile` ister. Askıdaki profilde `GET /properties/me` ve `GET /properties/me/:id` çalışır; oluşturma, güncelleme, durum, silme ve fotoğraf mutation'ları 403 `Agent profile is inactive` döner. Başka emlakçının ilanı 404 `Property not found` döner. İlan `sellerType = AGENT`, `ownerUserId = null` ve oturumdaki profil kimliğiyle yazılır. Gövdede gelen `agentProfileId` kullanılmaz.
 
-`GET /properties/me` query'si `status`, `page` ve `limit` dir. `sort` yoktur. Silinmiş ilanlar gelmez. Yanıt `PropertyRecord` sayfasıdır. Bu kayıtta `coverImageUrl` ve `isFavorite` yoktur. `sellerType` `AGENT` olur. `agentProfileId`, `updatedAt` ve `deletedAt` vardır. Bu endpoint yalnız AGENT ilanlarını döner. Bireysel ilan ID'si verildiğinde 404 `Property not found` döner.
+`GET /properties/me` query'si `status`, `page` ve `limit` dir. `sort` yoktur. Silinmiş ilanlar gelmez. Yanıt `AgentPropertyListItem` sayfasıdır: `PropertyRecord` alanları artı `coverImageUrl`. `isFavorite` yoktur. `coverImageUrl` canlı kapak görselinin sahip dosya path'idir: `/api/v1/properties/me/files/<uuid>`. Kapak, silinmemiş `isCover = true` görseldir; kapak yoksa en düşük `sortOrder` değerine sahip canlı görsel kullanılır. Canlı görsel yoksa değer `null` olur. Galeri dönmez. `sellerType` `AGENT` olur. `agentProfileId`, `updatedAt` ve `deletedAt` vardır. Bu endpoint yalnız AGENT ilanlarını döner. Bireysel ilan ID'si verildiğinde 404 `Property not found` döner.
 
-`GET /properties/me/:id` yanıtı `OwnerPropertyDetail` (`PropertyRecord` + `sortOrder` sırasındaki canlı `images: PropertyImage[]`) döner. Silinmiş fotoğraflar dahil edilmez.
+`GET /properties/me/files/:fileId` JSON değildir. `Content-Type` dosyanın MIME tipidir. `Content-Disposition` inline'dır. `Cache-Control: private, no-store`. Yalnız oturumdaki emlakçının kendi ilanındaki silinmemiş görseli döner. İlan `INACTIVE`, `SOLD` veya `RENTED` olsa da ve profil askıda olsa da sahip okuyabilir. Başka emlakçının dosyası, silinmiş görsel ve silinmiş ilan 404 `File not found` döner. `USER` 403 alır. Oturum yoksa 401 döner. Public `GET /files/:id` bu kuralla genişlemez.
+
+`GET /properties/me/:id` yanıtı `OwnerPropertyDetail` (`PropertyRecord` + `sortOrder` sırasındaki canlı `images: PropertyImage[]`) döner. Silinmiş fotoğraflar dahil edilmez. `images[].url` public `/api/v1/files/<uuid>` path'i olarak kalır. Düzenleme formu bu kimliği `GET /properties/me/files/:fileId` ile, Bearer blob olarak gösterir. Public dosya sözleşmesi değişmez.
 
 `DELETE` soft delete yapar ve `{ "id", "deletedAt" }` döner.
 
@@ -688,7 +701,7 @@ Hepsi `AGENT` ve Bearer ister. Başka emlakçının ilanı 404 `Property not fou
 }
 ```
 
-Zorunlu alanlar: `title` (5–160), `description` (20–5000), `listingType`, `propertyType`, `price`, `grossAreaM2`, `rooms` (0–50), `livingRooms` (0–20), üç lokasyon ID'si, `address` (5–300). `latitude` ve `longitude` opsiyoneldir; gönderilmezse kolonlar boş kalır ve silinmez.
+Zorunlu alanlar: `title` (5–160), `description` (20–5000), `listingType`, `propertyType`, `price`, `grossAreaM2`, `rooms` (0–50), `livingRooms` (0–20), üç lokasyon ID'si, `address` (5–300). `latitude` ve `longitude` opsiyoneldir; gönderilmezse kolonlar boş kalır ve silinmez. `propertyType` `LAND` olduğunda istemci `rooms` ve `livingRooms` göndermek zorundadır; API bu iki alanı `0` yazar, `floor`, `totalFloors` ve `heatingType` boş kalır, `hasElevator` `false` olur. Aynı kural güncellemede de geçerlidir. Bireysel ve emlakçı formları arsa seçilince bu alanları gizler.
 
 Opsiyonel: `netAreaM2`, `buildingAge` (0–300), `floor` (-5–200), `totalFloors` (1–200), `heatingType`, beş boolean özellik. Boolean'lar gönderilmezse `false` olur. Net alan brüt alandan büyük olamaz. `floor`, `totalFloors` değerinden büyük olamaz.
 
@@ -711,6 +724,7 @@ Bu endpointler yalnız `USER` rolüne açıktır. Oturum yoksa 401 döner. `AGEN
 ```text
 POST   /user-properties
 GET    /user-properties/me
+GET    /user-properties/me/files/:fileId
 GET    /user-properties/me/:id
 PATCH  /user-properties/:id
 PATCH  /user-properties/:id/status
@@ -719,7 +733,9 @@ DELETE /user-properties/:id
 
 `POST` gövdesi `CreatePropertyRequest` ile aynıdır. `sellerType`, `ownerUserId`, `agentProfileId`, `status`, `currency`, `createdAt`, `updatedAt` ve `deletedAt` gönderilirse 400 döner. Sunucu ilanı `sellerType = INDIVIDUAL`, `ownerUserId = current user`, `agentProfileId = null`, `status = ACTIVE`, `currency = TRY` olarak yazar. Yanıt `UserPropertyRecord` olur. `ownerUserId` yanıtta yoktur.
 
-`GET /user-properties/me` aynı `page` / `limit` sözleşmesini kullanır: `{ items, page, limit, total }`. Yalnız current user'ın silinmemiş INDIVIDUAL ilanları gelir. Her öğede `coverImageUrl` vardır. Canlı kapak yoksa değer `null` olur. Dolu değer `/api/v1/files/<uuid>` path'idir.
+`GET /user-properties/me` aynı `page` / `limit` sözleşmesini kullanır: `{ items, page, limit, total }`. Yalnız current user'ın silinmemiş INDIVIDUAL ilanları gelir. Her öğede `coverImageUrl` vardır. Canlı kapak yoksa değer `null` olur. Dolu değer `/api/v1/user-properties/me/files/<uuid>` path'idir.
+
+`GET /user-properties/me/files/:fileId` sahip dosya akışıdır. `Cache-Control: private, no-store`. Pasif bireysel ilanın görseli sahibi için okunur. Başka kullanıcının dosyası 404 `File not found` döner. `AGENT` 403 alır. Oturum yoksa 401 döner. Public `GET /files/:id` pasif ilanı açmaz. Bireysel düzenleme formu `images[].url` içindeki dosya kimliğini bu sahip path'ine çevirir; public path sözleşmesi aynı kalır.
 
 `GET /user-properties/me/:id` `UserPropertyDetail` döner. `cityId`, `districtId`, `neighborhoodId` ve canlı `images` (`id`, `url`, `sortOrder`, `isCover`, `sortOrder` artan) vardır. Silinmiş fotoğraf gelmez.
 
@@ -785,7 +801,7 @@ Silme `{ "id" }` döner. Metadata soft delete edilir ve sıradaki fotoğraf kapa
 
 | Kullanım       | Endpoint                                | Field                                              | MIME            | Max size | Visibility |
 | -------------- | --------------------------------------- | -------------------------------------------------- | --------------- | -------- | ---------- |
-| Emlakçı logosu | `POST /agents/me/logo`                  | `file`                                             | jpeg, png, webp | 5 MB     | Public     |
+| Emlakçı logosu | `POST /agents/me/logo`                  | `file`                                             | jpeg, png, webp | 5 MB     | Public dosya; sahip okuması `/agents/me/files/:fileId` |
 | Vergi levhası  | `POST /agent-applications/me/documents` | `file` ve `documentType=TAX_CERTIFICATE`           | pdf, jpeg, png  | 10 MB    | Private    |
 | Yetki belgesi  | `POST /agent-applications/me/documents` | `file` ve `documentType=AUTHORIZATION_CERTIFICATE` | pdf, jpeg, png  | 10 MB    | Private    |
 | İlan fotoğrafı | `POST /properties/:id/images`           | `file`                                             | jpeg, png, webp | 10 MB    | Public     |
@@ -808,7 +824,13 @@ Private:
 ```text
 tax certificate
 authorization certificate
+owner property image
+owner agent logo
 ```
+
+Sahip logo: `GET /agents/me/files/:fileId`. Yalnız oturumdaki profilin mevcut logosu. Askı okumayı kapatmaz. Başka hesap 404.
+
+Sahip ilan görseli: `GET /properties/me/files/:fileId` ve `GET /user-properties/me/files/:fileId`.
 
 Sahip: `GET /agent-applications/me/documents/:documentId`
 
@@ -824,22 +846,44 @@ Hepsi Bearer ve `ADMIN` ister. `USER` ve `ADMIN` dışındaki roller 403 alır.
 
 ```text
 GET   /admin/users
+GET   /admin/users/summary
 GET   /admin/users/:id
 PATCH /admin/users/:id/status
 ```
 
-Liste query'si `role`, `isActive` (`"true"` veya `"false"` string), `email` (içerir, harf duyarsız), `page`, `limit`.
+Liste query'si `role`, `isActive` (`"true"` veya `"false"` string), `email`, `createdFrom`, `createdTo`, `page`, `limit`. `email` parametresi geriye uyumludur ve artık e-posta, ad, soyad ve iki parçalı ad-soyad aramasıdır. `contains` + `mode: insensitive` kullanılır. Boşluklar kırpılır. İki ve daha fazla kelimede ilk kelime ad, kalanı soyad olarak ve tersi de aranır. Bu PostgreSQL ortamında `İpek` araması `ipek` ile eşleşir. Noktasız `ı` için ayrı bir katlama iddiası yoktur.
 
-Liste öğesi `AdminUser` tipidir. Detay `updatedAt` ve `agentProfile | null` ekler. Profil özeti `id`, `slug`, `companyName`, `isActive`, `city`, `district` taşır.
+`createdFrom` ve `createdTo` dahil sınırlardır. `YYYY-MM-DD` UTC günüdür: başlangıç `00:00:00.000Z`, bitiş `23:59:59.999Z`. Saatli değer `Z` veya `±HH:MM` taşımalıdır ve tam an olarak dahil edilir. Türkiye yerel günü için ofsetli an gönderilir, yalnız tarih gönderilmez. Geçersiz tarih ve `createdFrom > createdTo` 400 döner. Sıralama `createdAt DESC, id DESC`. `limit` en fazla 100. `total` aynı filtreden hesaplanır.
 
-Durum gövdesi `{ "isActive": false }` olur. Yanıt `{ "id", "isActive" }` olur. Admin kendi hesabını pasife alamaz: 409 `Admin cannot deactivate their own account`.
+Liste öğesi `AdminUserListItem` tipidir. `individualListingCount` silinmemiş bireysel ilanları, `agentListingCount` profildeki silinmemiş emlakçı ilanlarını sayar. Profil yoksa ikincisi 0 ve `agentProfile` null olur. Pasif hesap sayacı değiştirmez. Public sayı bu alanlarda yoktur.
 
-`passwordHash` ve oturum dönmez.
+Detay hesap alanlarına `updatedAt` ekler. `agentProfile` `id`, `slug`, `companyName`, `isActive`, `city`, `district` taşır ve `User.isActive` ile ayrıdır. `individualListings` her zaman vardır. `agentListings` profil yoksa null olur. Sayaçlar `total`, `active`, `inactive`, `sold`, `rented`, `publiclyVisible` şeklindedir. `publiclyVisible` mevcut public ilan kuralıdır; `active` kayıtlı `ACTIVE` sayısıdır. `applications` son 20 kaydı ve `total` döner. Belge içeriği yoktur. Tam başvuru listesi `GET /admin/agent-applications?userId=` ile alınır. Bireysel ilanlar `GET /admin/properties?ownerUserId=`, emlakçı ilanları `GET /admin/properties?agentUserId=` ile alınır. İkisi birlikte verilirse koşullar AND olur. `managementEvents` hedefi `USER` ve bu kullanıcı olan son 10 audit kaydıdır. Tam sayfa `GET /admin/audit-logs?entityType=USER&entityId=` olur.
+
+Durum gövdesi `{ "isActive": false }` olur. Yanıt `{ "id", "isActive" }` olur. Aynı durum yeniden gönderilirse audit yazılmaz, oturumlar değişmez ve `tokenVersion` artmaz. Gerçek pasife alma, aynı transaction içinde `tokenVersion` değerini bir artırır ve açık refresh oturumlarını `revokedAt` ile kapatır. Yeniden açılış eski refresh oturumunu ve eski access token'ı geri getirmez. Yeni login güncel sürümü taşıyan access token ve yeni refresh oturumu üretir. Admin kendi hesabını pasife alamaz: 409 `Admin cannot deactivate their own account`. Son aktif admin koruması transaction advisory lock içindedir. İkinci taraf beklerken pasife alınmışsa 403 `Forbidden` döner. Aktif admin kalmayacaksa 409 `At least one active admin must remain` döner. Rol, ilan status, `AgentProfile.isActive` ve başvuru durumu değişmez. Profil askıya alma ve başvuru onayı `tokenVersion` değiştirmez.
+
+`passwordHash`, token ve session hash dönmez.
+
+`GET /admin/users/summary` kullanıcı ekranının nüfus kartları ve kayıt grafiği içindir. Platform dashboard özeti değildir. Query yoksa `registrations` null döner; bu boş veri 200'dür, hata değildir.
+
+Nüfus alanları tarih aralığından etkilenmez: `total`, `active`, `inactive` ve `roles.USER`, `roles.AGENT`, `roles.ADMIN`. Her rol `{ total, active, inactive }` taşır. Kayıt yoksa değer 0'dır. Bu sayılar `groupBy` sonucudur; `items.length` kullanılmaz.
+
+Kayıt serisi için `createdFrom`, `createdTo` ve `bucket` (`day` veya `month`) birlikte zorunludur. Biri eksikse veya aralık tersse 400 döner. `day` en fazla 366 kova, `month` en fazla 36 kova kabul eder; aşım 400'dür. `registrations.total` aralıktaki kayıt sayısıdır. `points[].bucketStart` UTC kova başlangıcıdır. `points[].count` o kovada ve istenen an aralığında açılan hesaplardır. Aralıktaki boş gün veya ay `count: 0` ile döner; bu uydurma değer değil, gerçek boş kovadır. İlk ve son ay kovası, ayın tümü istenmemişse yalnız aralığın içini sayar.
+
+Tek bir aralığın kayıt sayısı grafik olmadan da `GET /admin/users?createdFrom=&createdTo=&limit=1` yanıtındaki `total` alanıdır. Yine `items.length` değildir.
+
+Kullanıcı kartındaki ilan dağılımı detaydaki `individualListings` ve `agentListings` alanlarıdır. Başvuru grafiği `applications`, işlem geçmişi `managementEvents` alanıdır. İlan, başvuru ve emlakçı platform özeti FAZ 3.7 kapsamındadır.
+
+Kullanıcı ekranı `/admin/kullanicilar` ve `/admin/kullanicilar/:id` bu sözleşmeyi kullanır. Nüfus kartları ve rol grafikleri parametresiz summary çağrısıdır. Kayıt grafiği ayrı bir summary çağrısıdır; varsayılan son 30 UTC günü ve `bucket=day` olur. Son 7, 30 ve 90 gün `day`, son 12 ay `month` gönderir. Tarih alanındaki `YYYY-MM-DD` değeri UTC gün olarak gönderilir ve grafik etiketleri `timeZone: 'UTC'` ile basılır. Türkiye yerel günü gibi etiketlenmez. Liste filtreleri grafik aralığından bağımsızdır ve `email` parametresiyle ad, soyad veya e-posta arar. Liste `total` filtrelenmiş sonuçtur, nüfus kartı değildir.
+
+Pasife alma ve yeniden aktif etme detay ekranındaki dialog ile yapılır. Başarıda `admin-users`, `admin-user`, `admin-user-summary`, emlakçı, ilan ve audit sorguları yenilenir. Tüm cache silinmez. Çıkış mevcut `queryClient.clear()` davranışını korur. `ACTIVE` ilan durumu ile `publiclyVisible` ayrı gösterilir. `publiclyVisible` donut dilimi değildir.
+
+Ortak kullanıcı görselleri `apps/web/src/components/admin` altındadır: metrik kart, donut, yatay bar, kayıt sütun grafiği, baş harf avatarı. Recharts zaten bağımlılıktı; ikinci grafik kütüphanesi eklenmedi.
 
 ### Agent applications
 
 ```text
 GET  /admin/agent-applications
+GET  /admin/agent-applications/summary
 GET  /admin/agent-applications/:id
 GET  /admin/agent-applications/:id/documents
 GET  /admin/agent-applications/:id/documents/:documentId
@@ -847,9 +891,42 @@ POST /admin/agent-applications/:id/approve
 POST /admin/agent-applications/:id/reject
 ```
 
-Liste query'si `status`, `page`, `limit`. Liste öğesi başvuru özeti ve `user: { id, email, role, isActive }` taşır.
+`summary` route'u `/:id` önündedir. Onay ve ret gövdesi değişmedi. Lifecycle değişmedi: `DRAFT`, `PENDING`, `APPROVED`, `REJECTED`. Yeni ara durum yoktur.
 
-Detay, sahip başvurusunun alanlarına `userId`, `reviewedById` ve `user` ekler.
+Liste query'si `search`, `status`, `city`, `district`, `userId`, `createdFrom`, `createdTo`, `page`, `limit`. `status` yoksa backend durum filtresi uygulamaz; `DRAFT` dahil bütün kayıtlar döner. İnceleme kuyruğu ekranı ayrıca `status=PENDING` ister. `search` trim edilir ve firma adı, başvuran ad/soyad (iki yön), hesap e-postası, başvuru iletişim e-postası ve vergi numarasında büyük/küçük harf duyarsız arar. Hesap e-postası `user.email`, iletişim e-postası başvuru `email` alanıdır. `city` ve `district` serbest metindir; ilişki id'si yoktur ve eşitlik duyarsızdır. `createdFrom` / `createdTo` başvurunun `createdAt` alanıdır, `submittedAt` değildir. `YYYY-MM-DD` UTC günüdür, sınırlar dahildir. Ters veya geçersiz tarih 400'dür. Filtreler AND birleşir. `total` aynı koşullardan gelir. Limit en fazla 100'dür.
+
+Sıralama, `status=PENDING` iken `submittedAt` azalan, sonra `id` azalandır. Böylece revise edilip yeniden gönderilen başvuru kuyrukta yeni gönderim zamanına göre durur. Diğer listeler `createdAt` azalan, `id` azalandır. `submittedAt` null olan bekleyen satır sonda kalır.
+
+Liste öğesi firma, başvuru telefonu ve iletişim e-postası, şehir, ilçe, `createdAt`, `submittedAt`, `reviewedAt`, başvuran `user` özeti (`id`, `firstName`, `lastName`, `email`, `role`, `isActive`), `reviewedBy` (`id`, `firstName`, `lastName` veya null) ve `documentCompletion` taşır. Vergi numarası, adres ve açıklama listeye konmaz. Şifre ve oturum alanları yoktur.
+
+`documentCompletion` zorunlu türleri sayar: `TAX_CERTIFICATE` ve `AUTHORIZATION_CERTIFICATE`. `requiredCount` 2'dir. `completedCount` silinmemiş dosyası olan benzersiz zorunlu tür sayısıdır; aynı türün ikinci yüklemesi sayıyı artırmaz. `missingTypes` eksik türlerdir. `isComplete`, mevcut submit ve onay belge koşuluyla aynıdır. Belge doğrulama durumu tutulmadığı için `verified` alanı yoktur.
+
+Detay, mevcut başvuru alanlarına `userId`, `reviewedById`, `user`, `documentCompletion`, `reviewedBy` ve `agentProfile` ekler. `agentProfile` yalnız `APPROVED` başvuruda ve kullanıcının gerçek profili varsa `{ id, slug, companyName, isActive }` döner. Diğer durumlarda null'dur. Eski başvuruya mevcut profil otomatik bağlanmaz. Revise, `submittedAt`, `reviewedAt`, `reviewedById` ve ret gerekçesini temizler; detaydaki `reviewedBy` o zaman null olur.
+
+```json
+GET /admin/agent-applications/summary
+```
+
+Parametresiz çağrı bütün başvuruların güncel durum dağılımını verir. Zaman serisi istenmezse `created` null'dur; bu hata değildir.
+
+```json
+{
+  "total": 0,
+  "statuses": { "DRAFT": 0, "PENDING": 0, "APPROVED": 0, "REJECTED": 0 },
+  "oldestPending": null,
+  "created": null
+}
+```
+
+`total`, dört durumun toplamıdır. Sayaçlar kayıtlı satırların güncel durumudur. Aynı satırın yeniden gönderilmesi toplamı artırmaz. Onay sayısı aktif emlakçı sayısı değildir. `oldestPending`, `submittedAt` değeri olan en eski `PENDING` başvurudur: `id`, `submittedAt`, `waitingMs`. Geçmiş ortalama inceleme süresi veya SLA üretilmez. Revise sonrası yeni `submittedAt` bekleme süresinin başlangıcıdır.
+
+`createdFrom`, `createdTo` ve `bucket` (`day` veya `month`) birlikte zorunludur. Biri eksikse, aralık tersse veya geçersizse 400 döner. `day` en fazla 366, `month` en fazla 36 kova. Aşım 400'dür. Seri `createdAt` üzerinden yeni oluşturulan başvuru satırlarıdır; incelemeye gönderme denemesi değildir. `created.points[].bucketStart` UTC kova başlangıcıdır. Boş gün ve ay gerçek `count: 0` döner. Aralık, `statuses` sayaçlarını filtrelemez.
+
+Görsel süreç için mevcut alanlar yeterlidir: `createdAt`, `submittedAt`, `reviewedAt`, `status`, `rejectionReason`. İncelemeye başlanma tarihi yoktur ve üretilmez. Onay/ret audit kaydı `AGENT_APPLICATION` ve başvuru id'sidir. Belge audit'i `AGENT_APPLICATION_DOCUMENT` ve belge id'sidir; başvuru detayına audit listesi eklenmez.
+
+Admin ekranları `/admin/basvurular` ve `/admin/basvurular/:id` üzerindedir. Açılışta status yoksa ve `userId` yoksa liste `PENDING` ister. `userId` varken status yoksa veya `status=ALL` ise durum filtresi gönderilmez. Kullanıcı detayındaki Tüm başvurular bağlantısı `?userId=&status=ALL` taşır. Arama `search` parametresine 400 ms sonra yazılır. Şehir ve ilçe serbest metindir. Liste tarihi `createdFrom` / `createdTo` ile `createdAt` günüdür. Sayaçlar ve durum dağılımı parametresiz summary'den gelir. "Yeni Oluşturulan Başvurular" grafiği `created` serisidir; varsayılan son 30 UTC günüdür ve liste filtresinden bağımsızdır. Belge görüntüleme ve indirme authenticated blob ister; public `/files/:id` ve token query kullanılmaz. Onay ve ret yalnız PENDING detayında dialog ile açılır. 409 sonrası başarı mesajı gösterilmez ve detay yeniden alınır. Karar sonrası başvuru listesi, summary, kullanıcı listesi ve summary, kullanıcı detayı, emlakçı listesi ve audit sorguları geçersiz kılınır. Başvuru oluşturulma serisi karar yüzünden yeni nokta üretmez.
+
+Belge indirme `private, no-store` olarak durur. Başvuru belgesi public dosya yoluna açılmaz.
 
 Onay gövdesizdir ve 200 döner:
 
@@ -874,7 +951,9 @@ Onay gövdesizdir ve 200 döner:
 }
 ```
 
-Red gövdesi `{ "reason": "..." }` olur. `reason` trim edilir, 3–500 karakterdir. Yanıt `id`, `status`, `userId`, `companyName`, `rejectionReason`, `reviewedById`, `reviewedAt` taşır.
+Onay ve ret, transaction içinde başvuru satırını kilitler. Yazma yalnız `status = PENDING` satıra uygulanır. İkinci karar 409 `Application is no longer pending` döner ve ilk karar kalır.
+
+Red gövdesi `{ "reason": "..." }` olur. `reason` trim edilir, 3–500 karakterdir. Boş ve yalnız boşluk değerler kabul edilmez. Yanıt `id`, `status`, `userId`, `companyName`, `rejectionReason`, `reviewedById`, `reviewedAt` taşır. Audit kaydı `AGENT_APPLICATION_REJECTED` ve metadata `{ "reason": "..." }` olur. Onay audit kaydı `AGENT_APPLICATION_APPROVED` olur; metadata boştur.
 
 ### Agents
 
@@ -890,7 +969,7 @@ Liste öğesi `id`, `slug`, `companyName`, `city`, `district`, `isActive`, `crea
 
 Detay `AgentProfile` artı `userId` ve `user` (`AdminUser`) olur.
 
-Durum `{ "isActive": false }` ile `AgentProfile.isActive` değiştirir. `User.isActive` ayrıdır. Hesap aktif ve profil pasifse kullanıcı giriş yapar, public profil ve public ilanlar görünmez. Yanıt `{ "id", "isActive" }` olur.
+Durum `{ "isActive": false }` ile `AgentProfile.isActive` değiştirir. `User.role` ve başvuru durumu değişmez. `User.isActive` ayrıdır. Hesap aktif ve profil pasifse kullanıcı giriş yapar, public profil ve public ilanlar görünmez. İlan satırlarının `status` değeri topluca değiştirilmez. Public profil ve emlakçı ilan listesi `AgentProfile.isActive = true` ve `User.isActive = true` ister. Aynı profil `{ "isActive": true }` ile yeniden açılır. Audit `AGENT_PROFILE_DEACTIVATED` ve `AGENT_PROFILE_ACTIVATED` yazar. Yanıt `{ "id", "isActive" }` olur.
 
 ### Properties
 
@@ -902,7 +981,7 @@ DELETE /admin/properties/:id/images/:imageId
 DELETE /admin/properties/:id
 ```
 
-Liste query'si `status`, `listingType`, `city` (adın tam eşleşmesi), `deleted` (`"true"` / `"false"`, varsayılan silinmemişler), `page`, `limit`.
+Liste query'si `status`, `listingType`, `city` (adın tam eşleşmesi), `deleted` (`"true"` / `"false"`, varsayılan silinmemişler), `ownerUserId`, `agentUserId`, `page`, `limit`. `ownerUserId` bireysel sahip, `agentUserId` emlakçı hesabıdır. İkisi birlikte verilirse iki koşul AND olur.
 
 Liste öğesi `PropertyRecord` artı `sellerType` taşır. AGENT ilanında kısa `agent` korunur: `id`, `slug`, `companyName`, `isActive`, `user: { id, role, isActive }`. `owner` bu kayıtta `null` olur. INDIVIDUAL ilanında `agent` `null` olur ve `owner` `{ id, role, isActive }` döner.
 

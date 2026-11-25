@@ -614,6 +614,56 @@ describe('User properties (e2e)', () => {
     expect(body.agentProfileId).toBeUndefined();
     expect(body.ownerUserId).toBeUndefined();
   });
+
+  it('lets the owner read an inactive listing image that the public file route hides', async () => {
+    const owner = await createAccount();
+    const stranger = await createAccount();
+    const agent = await createAgent();
+    const city = label('UserOwnedFile');
+    const created = await postUserProperty(owner.token, city);
+    const id = text(responseData(created).id);
+    const uploaded = await http()
+      .post(`/api/v1/user-properties/${id}/images`)
+      .set('Authorization', `Bearer ${owner.token}`)
+      .attach('file', jpeg, {
+        filename: 'cover.jpg',
+        contentType: 'image/jpeg',
+      });
+    const publicUrl = text(responseData(uploaded).url);
+    const fileId = publicUrl.split('/').pop();
+    const ownedUrl = `/api/v1/user-properties/me/files/${fileId}`;
+    const listed = await http()
+      .get('/api/v1/user-properties/me')
+      .set('Authorization', `Bearer ${owner.token}`);
+    const paused = await http()
+      .patch(`/api/v1/user-properties/${id}/status`)
+      .set('Authorization', `Bearer ${owner.token}`)
+      .send({ status: 'INACTIVE' });
+    const owned = await http()
+      .get(ownedUrl)
+      .set('Authorization', `Bearer ${owner.token}`);
+    const hidden = await http().get(publicUrl);
+    const otherUser = await http()
+      .get(ownedUrl)
+      .set('Authorization', `Bearer ${stranger.token}`);
+    const agentAttempt = await http()
+      .get(ownedUrl)
+      .set('Authorization', `Bearer ${agent.token}`);
+    const anonymous = await http().get(ownedUrl);
+
+    expect(uploaded.status).toBe(201);
+    expect(paused.status).toBe(200);
+    expect(
+      listItems(listed).find((item) => item.id === id)?.coverImageUrl,
+    ).toBe(ownedUrl);
+    expect(owned.status).toBe(200);
+    expect(owned.headers['content-type']).toContain('image/jpeg');
+    expect(hidden.status).toBe(404);
+    expect(otherUser.status).toBe(404);
+    expect(responseData(otherUser).message).toBe('File not found');
+    expect(agentAttempt.status).toBe(403);
+    expect(anonymous.status).toBe(401);
+  });
 });
 
 function responseData(response: Response) {

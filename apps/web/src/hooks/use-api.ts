@@ -19,9 +19,11 @@ import { publicMarketplaceData } from '@/services/public-marketplace-data';
 import type {
   AgentPropertyListQuery,
   AdminAgentApplicationListQuery,
+  AdminAgentApplicationSummaryQuery,
   AdminAgentListQuery,
   AdminPropertyListQuery,
   AdminUserListQuery,
+  AdminUserSummaryQuery,
   AuditLogListQuery,
   FavoriteListResponse,
   MyPropertyListQuery,
@@ -51,9 +53,13 @@ export const keys = {
   application: ['agent-application', 'me'] as const,
   applicationDocs: ['agent-application', 'documents'] as const,
   adminUsers: (q: AdminUserListQuery) => ['admin-users', q] as const,
+  adminUserSummary: (q: AdminUserSummaryQuery) =>
+    ['admin-user-summary', q] as const,
   adminUser: (id: string) => ['admin-user', id] as const,
   adminApplications: (q: AdminAgentApplicationListQuery) =>
     ['admin-agent-applications', q] as const,
+  adminApplicationSummary: (q: AdminAgentApplicationSummaryQuery) =>
+    ['admin-agent-application-summary', q] as const,
   adminApplication: (id: string) => ['admin-agent-application', id] as const,
   adminApplicationDocuments: (id: string) =>
     ['admin-agent-application-documents', id] as const,
@@ -366,6 +372,16 @@ export const useAdminUsers = (q: AdminUserListQuery, enabled = true) =>
     enabled,
   });
 
+export const useAdminUserSummary = (
+  q: AdminUserSummaryQuery,
+  enabled = true,
+) =>
+  useQuery({
+    queryKey: keys.adminUserSummary(q),
+    queryFn: () => adminUsersApi.getUserSummary(q),
+    enabled,
+  });
+
 export const useAdminUser = (id: string, enabled = true) =>
   useQuery({
     queryKey: keys.adminUser(id),
@@ -394,6 +410,16 @@ export const useAdminApps = (
   useQuery({
     queryKey: keys.adminApplications(q),
     queryFn: () => adminApplicationsApi.getApplications(q),
+    enabled,
+  });
+
+export const useAdminApplicationSummary = (
+  q: AdminAgentApplicationSummaryQuery,
+  enabled = true,
+) =>
+  useQuery({
+    queryKey: keys.adminApplicationSummary(q),
+    queryFn: () => adminApplicationsApi.getApplicationSummary(q),
     enabled,
   });
 

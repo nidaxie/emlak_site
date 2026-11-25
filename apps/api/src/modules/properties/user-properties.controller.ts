@@ -4,11 +4,13 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   Param,
   ParseUUIDPipe,
   Patch,
   Post,
   Query,
+  StreamableFile,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -25,6 +27,7 @@ import { ListMyPropertiesQueryDto } from './dto/list-properties-query.dto';
 import { OrderPropertyImagesDto } from './dto/order-property-images.dto';
 import { UpdatePropertyDto } from './dto/update-property.dto';
 import { UpdateUserPropertyStatusDto } from './dto/update-user-property-status.dto';
+import { contentDisposition } from '../storage/file-policy';
 import { PropertiesService } from './properties.service';
 import { PropertyImagesService } from './property-images.service';
 
@@ -48,6 +51,21 @@ export class UserPropertiesController {
     @Query() query: ListMyPropertiesQueryDto,
   ) {
     return this.properties.listMineForUser(user.id, query);
+  }
+
+  @Get('me/files/:fileId')
+  @Header('Cache-Control', 'private, no-store')
+  @Header('X-Content-Type-Options', 'nosniff')
+  async openOwnedFile(
+    @CurrentUser() user: AuthUser,
+    @Param('fileId', ParseUUIDPipe) fileId: string,
+  ) {
+    const file = await this.properties.openOwnedUserImage(user.id, fileId);
+
+    return new StreamableFile(file.stream, {
+      type: file.mimeType,
+      disposition: contentDisposition('inline', file.originalName),
+    });
   }
 
   @Get('me/:id')

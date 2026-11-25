@@ -276,6 +276,9 @@ describe('Backend readiness (e2e)', () => {
         `/api/v1/admin/agent-applications/${applicationId}/documents/${documentId}`,
       )
       .set('Authorization', `Bearer ${admin.token}`);
+    const submitted = await http()
+      .post('/api/v1/agent-applications/me/submit')
+      .set('Authorization', `Bearer ${user.token}`);
     const approved = await http()
       .post(`/api/v1/admin/agent-applications/${applicationId}/approve`)
       .set('Authorization', `Bearer ${admin.token}`);
@@ -308,6 +311,7 @@ describe('Backend readiness (e2e)', () => {
     expect(adminList.status).toBe(200);
     expect(adminFile.status).toBe(200);
     expect(adminFile.headers['content-type']).toContain('application/pdf');
+    expect(submitted.status).toBe(200);
     expect(approved.status).toBe(200);
     expect(audit?.metadata).toBeNull();
     expect(JSON.stringify(audit)).not.toContain('password');

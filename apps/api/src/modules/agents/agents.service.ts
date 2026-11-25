@@ -1,13 +1,16 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
-import { AuditAction, FileCategory } from '../../generated/prisma/enums';
+import { AuditAction, FileCategory, Role } from '../../generated/prisma/enums';
 import { PrismaService } from '../../database/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { lockActiveAgent } from './active-agent';
 import { blankToNull } from '../auth/normalize';
-import { publicFileUrl } from '../storage/public-file-url';
+import { agentOwnedLogoUrl, publicFileUrl } from '../storage/public-file-url';
 import { StorageService } from '../storage/storage.service';
 import { ListAgentsQueryDto } from './dto/list-agents-query.dto';
 import { UpdateAgentProfileDto } from './dto/update-agent-profile.dto';
@@ -61,7 +64,7 @@ export class AgentsService {
 
   async getPublicBySlug(slug: string) {
     const profile = await this.prisma.agentProfile.findFirst({
-      where: { slug, isActive: true },
+      where: { slug, isActive: true, user: { isActive: true } },
       select: publicAgentSelect,
     });
 
@@ -82,7 +85,49 @@ export class AgentsService {
       throw new NotFoundException('Agent profile not found');
     }
 
-    return withLogo(profile);
+    return withLogo(profile, agentOwnedLogoUrl);
+  }
+
+  async openOwnedLogo(userId: string, fileId: string) {
+    const profile = await this.prisma.agentProfile.findUnique({
+      where: { userId },
+      select: {
+        id: true,
+        logoFileId: true,
+        user: { select: { role: true, isActive: true } },
+      },
+    });
+
+    if (!profile || profile.user.role !== Role.AGENT) {
+      throw new ForbiddenException('Agent profile not found');
+    }
+
+    if (!profile.user.isActive) {
+      throw new UnauthorizedException('Unauthorized');
+    }
+
+    if (profile.logoFileId !== fileId) {
+      throw new NotFoundException('File not found');
+    }
+
+    const file = await this.prisma.storedFile.findFirst({
+      where: {
+        id: fileId,
+        deletedAt: null,
+        category: FileCategory.AGENT_LOGO,
+      },
+      select: { storageKey: true, mimeType: true, originalName: true },
+    });
+
+    if (!file) {
+      throw new NotFoundException('File not found');
+    }
+
+    return {
+      stream: await this.storage.open(file.storageKey),
+      mimeType: file.mimeType,
+      originalName: file.originalName,
+    };
   }
 
   async updateMine(userId: string, dto: UpdateAgentProfileDto) {
@@ -102,21 +147,24 @@ export class AgentsService {
       throw new BadRequestException('No fields to update');
     }
 
-    await this.getMine(userId);
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await lockActiveAgent(tx, userId);
 
-    const updated = await this.prisma.agentProfile.update({
-      where: { userId },
-      data,
-      select: selfAgentSelect,
+      return tx.agentProfile.update({
+        where: { userId },
+        data,
+        select: selfAgentSelect,
+      });
     });
 
-    return withLogo(updated);
+    return withLogo(updated, agentOwnedLogoUrl);
   }
 
   async uploadLogo(
     userId: string,
     file: { buffer: Buffer; originalname?: string },
   ) {
+    await this.prisma.$transaction((tx) => lockActiveAgent(tx, userId));
     const profile = await this.prisma.agentProfile.findUnique({
       where: { userId },
       select: { id: true, logoFileId: true },
@@ -135,6 +183,7 @@ export class AgentsService {
 
     try {
       const previousKey = await this.prisma.$transaction(async (tx) => {
+        await lockActiveAgent(tx, userId);
         const current = await tx.agentProfile.findUnique({
           where: { id: profile.id },
           select: { logoFile: { select: { id: true, storageKey: true } } },
@@ -279,8 +328,11 @@ export class AgentsService {
   }
 }
 
-function withLogo<T extends { logoFileId: string | null }>(row: T) {
+function withLogo<T extends { logoFileId: string | null }>(
+  row: T,
+  toUrl: (fileId: string | null) => string | null = publicFileUrl,
+) {
   const { logoFileId, ...rest } = row;
 
-  return { ...rest, logoUrl: publicFileUrl(logoFileId) };
+  return { ...rest, logoUrl: toUrl(logoFileId) };
 }

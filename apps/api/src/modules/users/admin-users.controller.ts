@@ -17,6 +17,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AdminUsersService } from './admin-users.service';
 import { ListUsersQueryDto } from './dto/list-users-query.dto';
 import { UpdateUserStatusDto } from './dto/update-user-status.dto';
+import { UserSummaryQueryDto } from './dto/user-summary-query.dto';
 
 @Controller('admin/users')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -27,6 +28,11 @@ export class AdminUsersController {
   @Get()
   list(@Query() query: ListUsersQueryDto) {
     return this.users.list(query);
+  }
+
+  @Get('summary')
+  summary(@Query() query: UserSummaryQueryDto) {
+    return this.users.summary(query);
   }
 
   @Get(':id')

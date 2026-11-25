@@ -74,6 +74,22 @@ function resolveErrorMessage(status: number, payload?: ApiError): string {
     return 'İncelemede olan bir emlakçı başvurunuz zaten bulunuyor.';
   }
 
+  if (status === 409 && rawMessage === 'Draft application already exists') {
+    return 'Tamamlanmamış bir emlakçı başvurunuz zaten bulunuyor.';
+  }
+
+  if (status === 409 && rawMessage === 'Rejected application can be revised') {
+    return 'Reddedilen başvurunuzu yeniden düzenleyerek devam edin.';
+  }
+
+  if (status === 409 && rawMessage === 'Application is not a draft') {
+    return 'Bu başvuru şu anda düzenlenemez.';
+  }
+
+  if (status === 409 && rawMessage === 'Required documents are missing') {
+    return 'İncelemeye göndermek için Vergi Levhası ve Yetki Belgesi birlikte yüklenmelidir.';
+  }
+
   if (status === 409 && rawMessage === 'Application is no longer pending') {
     return 'Bu başvuru artık inceleme aşamasında olmadığı için güncellenemez.';
   }
@@ -108,6 +124,10 @@ function resolveErrorMessage(status: number, payload?: ApiError): string {
 
   if (status === 409 && rawMessage === 'Admin cannot deactivate their own account') {
     return 'Yönetici kendi hesabını pasife alamaz.';
+  }
+
+  if (status === 409 && rawMessage === 'At least one active admin must remain') {
+    return 'Son aktif yönetici pasife alınamaz. En az bir aktif yönetici kalmalıdır.';
   }
 
   if (status === 409 && rawMessage === 'Required documents are missing') {

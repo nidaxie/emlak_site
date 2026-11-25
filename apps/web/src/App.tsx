@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Route, Switch, Link, useLocation, useRoute, useSearch, Router as WouterRouter } from 'wouter';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { useForm, type RegisterOptions } from 'react-hook-form';
 import { AuthProvider, useAuth } from '@/hooks/auth-context';
-import { keys, useAgent, useAgentProperties, useApplication, useApplicationDocs, useApiCities, useApiDistricts, useApiNeighborhoods, useCities, useDistricts, useFavorites, useInvalidateMarketplace, useInvalidateUserProperties, useMineProperties, useMineProperty, useMyAgentProfile, useMyUserProperties, useMyUserProperty, useNeighborhoods, useProperties, useProperty, useToggleFavorite, useAdminUsers, useAdminUser, useAdminAgents, useAdminAgent, useAdminApps, useAdminApplication, useAdminApplicationDocuments, useAdminProperties, useAdminProperty, useAdminAudit, useMe } from '@/hooks/use-api';
-import { adminAgentsApi, adminApplicationsApi, adminPropertiesApi, adminUsersApi, agentsApi, applicationsApi, propertiesApi, propertyImagesApi, userPropertiesApi, usersApi } from '@/services/api';
-import { ApiRequestError, fileUrl } from '@/lib/api-client';
+import { keys, useAgent, useAgentProperties, useApplication, useApplicationDocs, useApiCities, useApiDistricts, useApiNeighborhoods, useCities, useDistricts, useFavorites, useInvalidateMarketplace, useInvalidateUserProperties, useMineProperties, useMineProperty, useMyAgentProfile, useMyUserProperties, useMyUserProperty, useNeighborhoods, useProperties, useProperty, useToggleFavorite, useAdminUsers, useAdminAgents, useAdminAgent, useAdminApps, useAdminProperties, useAdminProperty, useAdminAudit, useMe } from '@/hooks/use-api';
+import { adminAgentsApi, adminPropertiesApi, agentsApi, applicationsApi, propertiesApi, propertyImagesApi, userPropertiesApi, usersApi } from '@/services/api';
+import { ApiRequestError, fileUrl, request } from '@/lib/api-client';
 import { EmptyState, ErrorState, labels, money, area, Pagination, PropertyCardView, SectionTitle, SkeletonGrid, inputClass } from '@/components/market-ui';
 import { ArrowLeft, ArrowRight, BadgeCheck, Building2, ChevronDown, ChevronLeft, ChevronRight, CircleUserRound, Heart, Home, MapPin, Menu, Phone, Search, ShieldCheck, SlidersHorizontal, UserRound, X } from 'lucide-react';
 import type { AgentDocumentType, CreateAgentApplicationRequest, CreatePropertyRequest, MyPropertyListQuery, PropertyCard, PropertyImage, PropertyStatus, PublicPropertyListQuery, RegisterRequest, UpdateAgentProfileRequest, UpdatePropertyRequest, UserPropertyRecord } from '@/types/api';
@@ -17,6 +17,27 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import { DATA_MODE } from '@/lib/data-mode';
 import { YuvaLogo } from '@/components/yuva-logo';
 
+const AdminUsersPanel = lazy(() =>
+  import('@/components/admin/admin-users-panel').then((module) => ({
+    default: module.AdminUsersPanel,
+  })),
+);
+const AdminUserDetailPanel = lazy(() =>
+  import('@/components/admin/admin-user-detail-panel').then((module) => ({
+    default: module.AdminUserDetailPanel,
+  })),
+);
+const AdminApplicationsPanel = lazy(() =>
+  import('@/components/admin/admin-applications-panel').then((module) => ({
+    default: module.AdminApplicationsPanel,
+  })),
+);
+const AdminApplicationDetailPanel = lazy(() =>
+  import('@/components/admin/admin-application-detail-panel').then((module) => ({
+    default: module.AdminApplicationDetailPanel,
+  })),
+);
+
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: (failureCount, error) => !(error instanceof TypeError) && failureCount < 1, staleTime: 25000, refetchOnWindowFocus: false } } });
 const showError = (e: unknown) => e instanceof TypeError ? 'API sunucusuna bağlanılamadı. Sunucu adresini, durumunu ve CORS ayarlarını kontrol edin.' : e instanceof ApiRequestError ? e.message : 'Bir sorun oluştu. Lütfen tekrar deneyin.';
 function favoritesNavHref(user: { role: string } | null | undefined, isLoading: boolean, isAuthenticated: boolean) {
@@ -24,32 +45,56 @@ function favoritesNavHref(user: { role: string } | null | undefined, isLoading: 
   if (!isAuthenticated || !user) return `/giris?returnTo=${encodeURIComponent('/hesabim/favoriler')}`;
   return user.role === 'USER' ? '/hesabim/favoriler' : '/favoriler';
 }
+function platformNavItem(
+  user: { role: string } | null | undefined,
+  isLoading: boolean,
+  isAuthenticated: boolean,
+  applicationStatus?: 'DRAFT' | 'PENDING' | 'APPROVED' | 'REJECTED',
+  applicationLoading = false,
+): [string, string] | null {
+  if (isLoading) return null;
+  if (!isAuthenticated || !user) return [`/giris?returnTo=${encodeURIComponent('/emlakci-basvuru')}`, 'Emlakçı Ol'];
+  if (user.role === 'ADMIN') return ['/admin', 'Yönetim'];
+  if (user.role === 'AGENT') return ['/panel', 'Emlakçı Paneli'];
+  if (user.role !== 'USER') return null;
+  if (applicationStatus === 'DRAFT' || applicationStatus === 'REJECTED') return ['/emlakci-basvuru', 'Emlakçı Başvurusu'];
+  if (applicationStatus === 'PENDING' || applicationStatus === 'APPROVED') return ['/emlakci-basvuru', 'Başvuru Durumu'];
+  return ['/emlakci-basvuru', applicationLoading ? 'Emlakçı Başvurusu' : 'Emlakçı Ol'];
+}
+function navItemTestId(label: string, mobile = false) {
+  if (label === 'İlan Ver') return mobile ? 'link-ilan-ver-mobile' : 'link-ilan-ver';
+  if (label === 'Emlakçı Ol' || label === 'Emlakçı Başvurusu' || label === 'Başvuru Durumu' || label === 'Emlakçı Paneli' || label === 'Yönetim') {
+    return mobile ? 'link-platform-nav-mobile' : 'link-platform-nav';
+  }
+  return undefined;
+}
 function Header() {
   const { user, isAuthenticated, isLoading, logout } = useAuth(); const [open, setOpen] = useState(false);
-  const platformHref = user?.role === 'ADMIN' ? '/admin' : user?.role === 'AGENT' ? '/panel' : '/emlakci-basvuru';
-  const platformLabel = user?.role === 'ADMIN' ? 'Yönetim' : user?.role === 'AGENT' ? 'Panelim' : 'Emlakçı Ol';
+  const application = useApplication(!isLoading && isAuthenticated && user?.role === 'USER');
+  const agentProfile = useMyAgentProfile(!isLoading && isAuthenticated && user?.role === 'AGENT');
+  const suspendedAgent = user?.role === 'AGENT' && (agentProfile.isLoading || agentProfile.data?.isActive === false);
+  const platformItem = platformNavItem(user, isLoading, isAuthenticated, application.data?.status, application.isLoading);
   const ilanVerHref = isLoading
     ? '/ilan-ver'
     : !isAuthenticated || !user
       ? `/giris?returnTo=${encodeURIComponent('/ilan-ver')}`
       : user.role === 'AGENT'
-        ? '/panel/ilanlar/yeni'
+        ? suspendedAgent ? null : '/panel/ilanlar/yeni'
         : user.role === 'ADMIN'
           ? null
           : '/ilan-ver';
-  const platformItem: [string, string] | null = !isLoading && isAuthenticated && user?.role === 'USER' ? null : [platformHref, platformLabel];
   const navItems: [string, string][] = [['/', 'Ana Sayfa'], ['/ilanlar', 'İlanlar'], [favoritesNavHref(user, isLoading, isAuthenticated), 'Favoriler'], ...(ilanVerHref ? [[ilanVerHref, 'İlan Ver'] as [string, string]] : []), ...(platformItem ? [platformItem] : [])];
   const logoutNow = async () => { await logout(); setOpen(false); };
   return <header className="sticky top-0 z-40 border-b border-border/80 bg-background/95 backdrop-blur"><div className="mx-auto flex h-[78px] max-w-[1440px] items-center justify-between px-5 lg:px-10">
-    <YuvaLogo/><nav className="hidden items-center gap-8 text-sm font-semibold lg:flex" aria-label="Ana menü">{navItems.map(([href, label]) => <Link key={href + label} href={href} data-testid={label === 'İlan Ver' ? 'link-ilan-ver' : undefined} className={label === 'İlan Ver' ? 'rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground' : 'nav-link'}>{label}</Link>)}</nav>
+    <YuvaLogo/><nav className="hidden items-center gap-8 text-sm font-semibold lg:flex" aria-label="Ana menü">{navItems.map(([href, label]) => <Link key={href + label} href={href} data-testid={navItemTestId(label)} className={label === 'İlan Ver' ? 'rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground' : 'nav-link'}>{label}</Link>)}</nav>
     <div className="hidden items-center gap-3 lg:flex">{isLoading ? <div className="skeleton h-10 w-36 rounded-full" aria-hidden="true"/> : isAuthenticated && user ? <div className="relative"><button className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-2 text-sm font-semibold" onClick={() => setOpen(!open)} data-testid="button-account-menu"><CircleUserRound size={17}/>{user.firstName || user.email || 'Hesabım'}<ChevronDown size={14}/></button>{open && <div className="absolute right-0 top-12 z-50 w-60 rounded-xl border border-border bg-card p-2 shadow-xl">
       <div className="mb-1 border-b border-border px-3 py-2"><p className="truncate text-xs font-semibold text-foreground">{user.email}</p><p className="mt-0.5 text-[11px] text-muted-foreground">{labels[user.role]}</p></div>
       {user.role === 'USER' && <><MenuLink href="/hesabim">Hesabım</MenuLink><MenuLink href="/hesabim/ilanlar">İlanlarım</MenuLink><MenuLink href="/hesabim/favoriler">Favorilerim</MenuLink><MenuLink href="/hesabim/bilgiler">Hesap Bilgilerim</MenuLink></>}
-      {user.role === 'AGENT' && <><MenuLink href="/panel">Genel Bakış</MenuLink><MenuLink href="/panel/ilanlar">İlan Yönetimi</MenuLink><MenuLink href="/panel/emlakci-profili">Emlakçı Profilim</MenuLink><MenuLink href="/favoriler">Favorilerim</MenuLink></>}
+      {user.role === 'AGENT' && <><MenuLink href="/panel">Emlakçı Paneli</MenuLink><MenuLink href="/panel/ilanlar">İlanlarım</MenuLink><MenuLink href="/panel/emlakci-profili">Emlakçı Profilim</MenuLink><MenuLink href="/favoriler">Favorilerim</MenuLink></>}
       {user.role === 'ADMIN' && <><MenuLink href="/admin">Yönetim</MenuLink><MenuLink href="/admin/kullanicilar">Kullanıcılar</MenuLink><MenuLink href="/admin/basvurular">Başvurular</MenuLink></>}
       <button onClick={logoutNow} className="mt-1 w-full rounded-lg border-t border-border px-3 py-2 text-left text-sm text-destructive hover:bg-muted" data-testid="button-logout">Çıkış Yap</button></div>}</div> : <><Link href="/giris" className="rounded-xl px-4 py-2.5 text-sm font-semibold">Giriş yap</Link><Link href="/kayit" className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground">Ücretsiz kayıt</Link></>}</div>
     <button className="grid h-10 w-10 place-items-center rounded-xl border border-border lg:hidden" onClick={() => setOpen(!open)} aria-label="Menüyü aç" data-testid="button-mobile-menu">{open ? <X/> : <Menu/>}</button></div>
-    {open && <div className="border-t border-border bg-background px-5 py-4 lg:hidden"><nav className="grid gap-1">{navItems.map(([href, label]) => <Link key={href + label} href={href} onClick={() => setOpen(false)} data-testid={label === 'İlan Ver' ? 'link-ilan-ver-mobile' : undefined} className={label === 'İlan Ver' ? 'rounded-lg bg-primary px-3 py-3 text-sm font-semibold text-primary-foreground' : 'rounded-lg px-3 py-3 text-sm font-semibold hover:bg-muted'}>{label}</Link>)}{isLoading ? null : isAuthenticated && user ? <>{user.role === 'USER' ? <><Link href="/hesabim" onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-sm font-semibold hover:bg-muted">Hesabım</Link><Link href="/hesabim/ilanlar" onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-sm font-semibold hover:bg-muted">İlanlarım</Link><Link href="/hesabim/favoriler" onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-sm font-semibold hover:bg-muted">Favorilerim</Link><Link href="/hesabim/bilgiler" onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-sm font-semibold hover:bg-muted">Hesap Bilgilerim</Link></> : <Link href="/profil" onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-sm font-semibold hover:bg-muted">Profilim</Link>}<button onClick={logoutNow} className="px-3 py-3 text-left text-sm text-destructive">Çıkış Yap</button></> : <div className="mt-2 grid grid-cols-2 gap-2 border-t border-border pt-3"><Link href="/giris" onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-center text-sm font-semibold">Giriş yap</Link><Link href="/kayit" onClick={() => setOpen(false)} className="rounded-lg bg-primary px-3 py-3 text-center text-sm font-semibold text-primary-foreground">Ücretsiz kayıt</Link></div>}</nav></div>}
+    {open && <div className="border-t border-border bg-background px-5 py-4 lg:hidden"><nav className="grid gap-1">{navItems.map(([href, label]) => <Link key={href + label} href={href} onClick={() => setOpen(false)} data-testid={navItemTestId(label, true)} className={label === 'İlan Ver' ? 'rounded-lg bg-primary px-3 py-3 text-sm font-semibold text-primary-foreground' : 'rounded-lg px-3 py-3 text-sm font-semibold hover:bg-muted'}>{label}</Link>)}{isLoading ? null : isAuthenticated && user ? <>{user.role === 'USER' ? <><Link href="/hesabim" onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-sm font-semibold hover:bg-muted">Hesabım</Link><Link href="/hesabim/ilanlar" onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-sm font-semibold hover:bg-muted">İlanlarım</Link><Link href="/hesabim/favoriler" onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-sm font-semibold hover:bg-muted">Favorilerim</Link><Link href="/hesabim/bilgiler" onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-sm font-semibold hover:bg-muted">Hesap Bilgilerim</Link></> : user.role === 'AGENT' ? <><Link href="/panel" onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-sm font-semibold hover:bg-muted">Emlakçı Paneli</Link><Link href="/panel/ilanlar" onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-sm font-semibold hover:bg-muted">İlanlarım</Link><Link href="/panel/emlakci-profili" onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-sm font-semibold hover:bg-muted">Emlakçı Profilim</Link><Link href="/favoriler" onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-sm font-semibold hover:bg-muted">Favorilerim</Link></> : user.role === 'ADMIN' ? <><Link href="/admin" onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-sm font-semibold hover:bg-muted">Yönetim</Link><Link href="/admin/basvurular" onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-sm font-semibold hover:bg-muted">Başvurular</Link></> : <Link href="/profil" onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-sm font-semibold hover:bg-muted">Profilim</Link>}<button onClick={logoutNow} className="px-3 py-3 text-left text-sm text-destructive">Çıkış Yap</button></> : <div className="mt-2 grid grid-cols-2 gap-2 border-t border-border pt-3"><Link href="/giris" onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-center text-sm font-semibold">Giriş yap</Link><Link href="/kayit" onClick={() => setOpen(false)} className="rounded-lg bg-primary px-3 py-3 text-center text-sm font-semibold text-primary-foreground">Ücretsiz kayıt</Link></div>}</nav></div>}
   </header>;
 }
 function MenuLink({ href, children }: { href: string; children: ReactNode }) { return <Link href={href} className="block rounded-lg px-3 py-2 text-sm hover:bg-muted">{children}</Link>; }
@@ -316,7 +361,7 @@ function ListingPage() {
     </div>
   </PublicLayout>;
 }
-function FilterSelect({label,value,onChange,options,empty='Seçin',disabled=false}:{label:string;value:string;onChange:(v:string)=>void;options:string[][];empty?:string;disabled?:boolean}) { return <label className="mb-4 block text-xs font-semibold text-muted-foreground">{label}<select className={inputClass + ' mt-1.5'} value={value} disabled={disabled} onChange={e=>onChange(e.target.value)}><option value="">{empty}</option>{options.map(([v,l])=><option value={v} key={v}>{l}</option>)}</select></label>; }
+function FilterSelect({label,value,onChange,options,empty='Seçin',disabled=false,compact=false}:{label:string;value:string;onChange:(v:string)=>void;options:string[][];empty?:string;disabled?:boolean;compact?:boolean}) { return <label className={compact?'grid min-w-0 gap-1.5 text-sm font-semibold':'mb-4 block text-xs font-semibold text-muted-foreground'}>{label}<select className={inputClass+(compact?' min-w-0':' mt-1.5')} value={value} disabled={disabled} onChange={e=>onChange(e.target.value)}><option value="">{empty}</option>{options.map(([v,l])=><option value={v} key={v}>{l}</option>)}</select></label>; }
 function FilterRange({label,min,max,onMin,onMax}:{label:string;min:string;max:string;onMin:(v:string)=>void;onMax:(v:string)=>void}) { return <fieldset className="mb-4"><legend className="mb-1.5 text-xs font-semibold text-muted-foreground">{label}</legend><div className="grid grid-cols-2 gap-2"><input type="number" min="0" step="any" className={inputClass} placeholder="Minimum" aria-label={label + ' minimum'} inputMode="decimal" value={min} onChange={e=>onMin(e.target.value)}/><input type="number" min="0" step="any" className={inputClass} placeholder="Maksimum" aria-label={label + ' maksimum'} inputMode="decimal" value={max} onChange={e=>onMax(e.target.value)}/></div></fieldset>; }
 
 function PropertyDetailPage() {
@@ -327,11 +372,11 @@ function PropertyDetailPage() {
   if(q.isLoading)return <PublicLayout><div className="mx-auto max-w-6xl p-8"><div className="skeleton h-[420px] rounded-3xl"/><div className="skeleton mt-8 h-32"/></div></PublicLayout>;
   if(q.error){const notFound=(q.error instanceof ApiRequestError&&(q.error.status===404||q.error.status===400))||(DATA_MODE==='mock'&&q.error instanceof Error&&q.error.message==='Demo ilanı bulunamadı.');return <PublicLayout><div className="mx-auto max-w-5xl px-5 py-16">{notFound?<EmptyState title="İlan bulunamadı" text="Bu ilan mevcut değil veya yayından kaldırılmış olabilir." href="/ilanlar" action="İlanlara dön"/>:<ErrorState message={showError(q.error)}/>}</div></PublicLayout>;}
   const p=q.data; if(!p)return null; const images=p.images.slice().sort((a,b)=>a.sortOrder-b.sortOrder); const src=fileUrl(images[imageIndex]?.url || p.coverImageUrl); const imageAvailable=!!src&&imageError!==src;
-  const facts=[['Oda',`${p.rooms}+${p.livingRooms}`],['Brüt alan',`${area(p.grossAreaM2)} m²`],['Net alan',p.netAreaM2?`${area(p.netAreaM2)} m²`:'—'],['Bina yaşı',p.buildingAge??'—'],['Bulunduğu kat',p.floor??'—'],['Toplam kat',p.totalFloors??'—'],['Isıtma',p.heatingType?labels[p.heatingType]:'—'],['Eşyalı',p.isFurnished?'Evet':'Hayır'],['Balkon',p.hasBalcony?'Var':'Yok'],['Asansör',p.hasElevator?'Var':'Yok'],['Otopark',p.hasParking?'Var':'Yok'],['Site içinde',p.inSite?'Evet':'Hayır']];
+  const facts=([['Oda',`${p.rooms}+${p.livingRooms}`],['Brüt alan',`${area(p.grossAreaM2)} m²`],['Net alan',p.netAreaM2?`${area(p.netAreaM2)} m²`:'—'],['Bina yaşı',p.buildingAge??'—'],['Bulunduğu kat',p.floor??'—'],['Toplam kat',p.totalFloors??'—'],['Isıtma',p.heatingType?labels[p.heatingType]:'—'],['Eşyalı',p.isFurnished?'Evet':'Hayır'],['Balkon',p.hasBalcony?'Var':'Yok'],['Asansör',p.hasElevator?'Var':'Yok'],['Otopark',p.hasParking?'Var':'Yok'],['Site içinde',p.inSite?'Evet':'Hayır']] as const).filter(([key])=>p.propertyType!=='LAND'||!['Oda','Bulunduğu kat','Toplam kat','Isıtma','Asansör'].includes(key));
   return <PublicLayout><div className="mx-auto max-w-[1280px] px-5 py-8"><Link href="/ilanlar" className="mb-5 inline-flex items-center gap-2 text-sm font-semibold text-muted-foreground"><ArrowLeft size={16}/> İlanlara dön</Link><div className="grid gap-8 lg:grid-cols-[1.45fr_.8fr]"><section><div className="detail-image relative overflow-hidden rounded-[1.5rem] bg-muted">{imageAvailable?<img src={src!} alt={p.title} role="button" tabIndex={0} onClick={()=>setLightbox(true)} onError={()=>setImageError(src)} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();setLightbox(true);}}} className="h-full w-full cursor-zoom-in object-cover"/>:<div className="property-image-fallback grid h-full min-h-[340px] place-items-center" role="img" aria-label="İlan görseli kullanılamıyor"><Home size={58} className="text-emerald-900/30"/></div>}{images.length>1&&<div className="absolute inset-x-4 top-1/2 flex -translate-y-1/2 justify-between"><button className="gallery-arrow" onClick={()=>setImageIndex((imageIndex-1+images.length)%images.length)} aria-label="Önceki fotoğraf"><ChevronLeft/></button><button className="gallery-arrow" onClick={()=>setImageIndex((imageIndex+1)%images.length)} aria-label="Sonraki fotoğraf"><ChevronRight/></button></div>}<span className="absolute bottom-4 right-4 rounded-full bg-black/60 px-3 py-1 text-xs text-white">{images.length?`${imageIndex+1} / ${images.length}`:'Fotoğraf bulunmuyor'}</span></div>{images.length>1&&<div className="mt-3 flex gap-2 overflow-x-auto">{images.map((im,i)=><button key={im.id} className={`h-20 w-28 shrink-0 overflow-hidden rounded-xl border-2 ${i===imageIndex?'border-primary':'border-transparent'}`} onClick={()=>setImageIndex(i)}><img src={fileUrl(im.url)||''} alt={`${p.title} ${i+1}`} onError={e=>{e.currentTarget.style.opacity='0';}} className="h-full w-full object-cover"/></button>)}</div>}
       {lightbox&&imageAvailable&&<div className="fixed inset-0 z-[70] flex items-center justify-center bg-[#14211e]/95 p-4" role="dialog" aria-modal="true" aria-label="İlan fotoğrafı görüntüleyici" onClick={()=>setLightbox(false)}><button className="absolute right-5 top-5 grid h-11 w-11 place-items-center rounded-full bg-white/10 text-white" aria-label="Görüntüleyiciyi kapat" onClick={()=>setLightbox(false)}><X/></button>{images.length>1&&<button className="gallery-arrow absolute left-4 top-1/2 -translate-y-1/2" onClick={e=>{e.stopPropagation();setImageIndex((imageIndex-1+images.length)%images.length);}} aria-label="Önceki fotoğraf"><ChevronLeft/></button>}<img src={src!} alt={p.title} className="max-h-[88dvh] max-w-[92vw] rounded-lg object-contain" onError={()=>setImageError(src)} onClick={e=>e.stopPropagation()}/>{images.length>1&&<button className="gallery-arrow absolute right-4 top-1/2 -translate-y-1/2" onClick={e=>{e.stopPropagation();setImageIndex((imageIndex+1)%images.length);}} aria-label="Sonraki fotoğraf"><ChevronRight/></button>}</div>}
       <div className="mt-10"><SectionTitle eyebrow="İlan detayları" title="Öne çıkan özellikler"/><div className="grid grid-cols-2 gap-3 sm:grid-cols-3">{facts.map(([key,val])=><div key={key} className="rounded-xl bg-card p-4"><p className="text-xs text-muted-foreground">{key}</p><p className="mt-1 font-semibold">{val}</p></div>)}</div></div><div className="mt-10"><SectionTitle title="Açıklama"/><p className="whitespace-pre-line leading-7 text-muted-foreground">{p.description}</p></div><div className="mt-10"><SectionTitle title="Konum"/><div className="surface p-5"><p className="flex items-center gap-2 font-semibold"><span className="text-primary"><Home size={17}/></span>{p.neighborhood}, {p.district}, {p.city}</p><p className="mt-2 text-sm text-muted-foreground">{p.address}</p>{p.latitude && p.longitude ? <p className="mt-3 text-xs text-muted-foreground">Konum koordinatları: {p.latitude}, {p.longitude}</p> : null}</div></div></section>
-      <aside><div className="surface sticky top-28 p-6"><div className="flex items-center justify-between"><span className="rounded-full bg-secondary px-3 py-1.5 text-xs font-bold text-primary">{labels[p.listingType]} · {labels[p.propertyType]}</span><button type="button" disabled={fav.isPending} onClick={()=>isAuthenticated?fav.mutate({id:p.id,favorite:p.isFavorite}):go(`/giris?returnTo=${encodeURIComponent(currentTarget)}`)} aria-label={p.isFavorite?'Favorilerden çıkar':'Favorilere ekle'} aria-pressed={p.isFavorite} data-testid={`button-detail-favorite-${p.id}`} className={`grid h-10 w-10 place-items-center rounded-full bg-muted ${p.isFavorite?'text-rose-600':''}`}><Heart fill={p.isFavorite?'currentColor':'none'}/></button></div><p className="mt-5 font-display text-4xl font-extrabold text-primary">{money(p.price)}</p><h1 className="mt-3 font-display text-2xl font-bold leading-snug">{p.title}</h1><p className="mt-3 flex items-center gap-1.5 text-sm text-muted-foreground">{p.neighborhood}, {p.district}, {p.city}</p><div className="my-5 grid grid-cols-3 border-y border-border py-4 text-center"><span><b className="block">{p.rooms}+{p.livingRooms}</b><small className="text-xs text-muted-foreground">Oda</small></span><span><b className="block">{area(p.grossAreaM2)} m²</b><small className="text-xs text-muted-foreground">Brüt</small></span><span><b className="block">{p.buildingAge??'—'}</b><small className="text-xs text-muted-foreground">Bina yaşı</small></span></div><div className="flex items-center gap-3 rounded-xl bg-muted/70 p-4"><div className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-xl bg-white text-primary">{p.agent?.logoUrl&&fileUrl(p.agent.logoUrl)?<img src={fileUrl(p.agent.logoUrl)!} alt="" className="h-full w-full object-cover"/>:<Building2 size={22}/>}</div><div className="min-w-0 flex-1">{p.agent?<><Link href={`/emlakci/${p.agent.slug}`} className="block truncate font-bold hover:text-primary">{p.agent.companyName}</Link><Link href={`/emlakci/${p.agent.slug}`} className="text-xs text-primary">Emlakçı profili</Link></>:<><p className="truncate font-bold">{p.sellerDisplayName}</p><p className="text-xs text-muted-foreground">Bireysel ilan</p></>}</div></div>{p.agent?<a href={`tel:${p.agent.phone}`} className="mt-4 flex h-12 items-center justify-center gap-2 rounded-xl bg-primary font-semibold text-white"><Phone size={17}/> {p.agent.phone}</a>:<p className="mt-4 rounded-xl bg-muted px-4 py-3 text-center text-sm text-muted-foreground">İletişim bilgisi bu ilanda yayımlanmıyor.</p>}<p className="mt-3 text-center text-[11px] text-muted-foreground">{p.agent?'İlan hakkında bilgi almak için emlakçıyla iletişime geçin.':'Bireysel ilan sahibi.'}</p></div></aside></div></div></PublicLayout>;
+      <aside><div className="surface sticky top-28 p-6"><div className="flex items-center justify-between"><span className="rounded-full bg-secondary px-3 py-1.5 text-xs font-bold text-primary">{labels[p.listingType]} · {labels[p.propertyType]}</span><button type="button" disabled={fav.isPending} onClick={()=>isAuthenticated?fav.mutate({id:p.id,favorite:p.isFavorite}):go(`/giris?returnTo=${encodeURIComponent(currentTarget)}`)} aria-label={p.isFavorite?'Favorilerden çıkar':'Favorilere ekle'} aria-pressed={p.isFavorite} data-testid={`button-detail-favorite-${p.id}`} className={`grid h-10 w-10 place-items-center rounded-full bg-muted ${p.isFavorite?'text-rose-600':''}`}><Heart fill={p.isFavorite?'currentColor':'none'}/></button></div><p className="mt-5 font-display text-4xl font-extrabold text-primary">{money(p.price)}</p><h1 className="mt-3 font-display text-2xl font-bold leading-snug">{p.title}</h1><p className="mt-3 flex items-center gap-1.5 text-sm text-muted-foreground">{p.neighborhood}, {p.district}, {p.city}</p><div className={`my-5 grid border-y border-border py-4 text-center ${p.propertyType==='LAND'?'grid-cols-2':'grid-cols-3'}`}>{p.propertyType!=='LAND'&&<span><b className="block">{p.rooms}+{p.livingRooms}</b><small className="text-xs text-muted-foreground">Oda</small></span>}<span><b className="block">{area(p.grossAreaM2)} m²</b><small className="text-xs text-muted-foreground">Brüt</small></span><span><b className="block">{p.buildingAge??'—'}</b><small className="text-xs text-muted-foreground">Bina yaşı</small></span></div><div className="flex items-center gap-3 rounded-xl bg-muted/70 p-4"><div className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-xl bg-white text-primary">{p.agent?.logoUrl&&fileUrl(p.agent.logoUrl)?<img src={fileUrl(p.agent.logoUrl)!} alt="" className="h-full w-full object-cover"/>:<Building2 size={22}/>}</div><div className="min-w-0 flex-1">{p.agent?<><Link href={`/emlakci/${p.agent.slug}`} className="block truncate font-bold hover:text-primary">{p.agent.companyName}</Link><Link href={`/emlakci/${p.agent.slug}`} className="text-xs text-primary">Emlakçı profili</Link></>:<><p className="truncate font-bold">{p.sellerDisplayName}</p><p className="text-xs text-muted-foreground">Bireysel ilan</p></>}</div></div>{p.agent?<a href={`tel:${p.agent.phone}`} className="mt-4 flex h-12 items-center justify-center gap-2 rounded-xl bg-primary font-semibold text-white"><Phone size={17}/> {p.agent.phone}</a>:<p className="mt-4 rounded-xl bg-muted px-4 py-3 text-center text-sm text-muted-foreground">İletişim bilgisi bu ilanda yayımlanmıyor.</p>}<p className="mt-3 text-center text-[11px] text-muted-foreground">{p.agent?'İlan hakkında bilgi almak için emlakçıyla iletişime geçin.':'Bireysel ilan sahibi.'}</p></div></aside></div></div></PublicLayout>;
 }
 
 function AgentPage() {
@@ -440,7 +485,7 @@ function ApplicationPage() {
 
   const mutation=useMutation({
     mutationFn:(v:CreateAgentApplicationRequest)=>{
-      const isPending=app.data?.status==='PENDING';
+      const isDraft=app.data?.status==='DRAFT';
       const trimmedDesc=v.description?.trim()||'';
       const payload:CreateAgentApplicationRequest={
         companyName:v.companyName.trim(),
@@ -452,16 +497,16 @@ function ApplicationPage() {
         city:v.city.trim(),
         district:v.district.trim(),
         address:v.address.trim(),
-        ...(isPending?{description:trimmedDesc}:trimmedDesc?{description:trimmedDesc}:{}),
+        ...(isDraft?{description:trimmedDesc}:trimmedDesc?{description:trimmedDesc}:{}),
       };
-      return isPending?applicationsApi.updateMyApplication(payload):applicationsApi.createApplication(payload);
+      return isDraft?applicationsApi.updateMyApplication(payload):applicationsApi.createApplication(payload);
     },
     onSuccess:(saved)=>{
-      const wasPending=app.data?.status==='PENDING';
+      const wasDraft=app.data?.status==='DRAFT';
       qc.setQueryData(keys.application,saved);
       void qc.invalidateQueries({queryKey:keys.application});
       void qc.invalidateQueries({queryKey:keys.applicationDocs});
-      const msg=wasPending?'Başvuru bilgileriniz güncellendi.':'Başvurunuz alındı ve incelemeye gönderildi.';
+      const msg=wasDraft?'Başvuru bilgileriniz güncellendi.':'Başvurunuz taslak olarak kaydedildi. Başvuruya devam edin.';
       setErrorMsg('');
       setFeedback(msg);
       toast({title:msg});
@@ -470,6 +515,39 @@ function ApplicationPage() {
       const msg=showError(err);
       setFeedback('');
       setErrorMsg(msg);
+    },
+  });
+
+  const submitReview=useMutation({
+    mutationFn:()=>applicationsApi.submitMyApplication(),
+    onSuccess:(saved)=>{
+      qc.setQueryData(keys.application,saved);
+      void qc.invalidateQueries({queryKey:keys.application});
+      const msg='Başvurunuz incelemeye gönderildi.';
+      setErrorMsg('');
+      setFeedback(msg);
+      toast({title:msg});
+    },
+    onError:(err)=>{
+      setFeedback('');
+      setErrorMsg(showError(err));
+    },
+  });
+
+  const reviseApplication=useMutation({
+    mutationFn:()=>applicationsApi.reviseMyApplication(),
+    onSuccess:(saved)=>{
+      qc.setQueryData(keys.application,saved);
+      void qc.invalidateQueries({queryKey:keys.application});
+      void qc.invalidateQueries({queryKey:keys.applicationDocs});
+      const msg='Başvurunuz yeniden düzenlemeye açıldı.';
+      setErrorMsg('');
+      setFeedback(msg);
+      toast({title:msg});
+    },
+    onError:(err)=>{
+      setFeedback('');
+      setErrorMsg(showError(err));
     },
   });
 
@@ -534,7 +612,12 @@ function ApplicationPage() {
   const isNoApplication=app.error instanceof ApiRequestError&&app.error.status===404;
   const hasRealError=Boolean(app.error&&!isNoApplication);
   const currentApp=isNoApplication?undefined:app.data;
+  const isDraft=currentApp?.status==='DRAFT';
+  const isPendingReview=currentApp?.status==='PENDING';
+  const isRejected=currentApp?.status==='REJECTED';
   const isApproved=currentApp?.status==='APPROVED';
+  const canEditFields=!currentApp||isDraft;
+  const formBusy=mutation.isPending||submitReview.isPending||reviseApplication.isPending;
 
   return <Guard roles={['USER']}><PublicLayout><div className="mx-auto max-w-4xl px-5 py-12"><SectionTitle eyebrow="Profesyonel hesabı" title="Emlakçı başvurusu" description="Başvurunuzu ve gerekli belgeleri tek yerden yönetin."/>
     {isMock?<EmptyState title="Bu özellik gerçek API bağlantısı gerektirir" text="Emlakçı başvurusu oluşturmak ve belge yüklemek için gerçek API modunda giriş yapın." href="/ilanlar" action="İlanları keşfet"/>:app.isLoading?<div className="surface p-8"><div className="skeleton h-40"/></div>:hasRealError?<ErrorState retry={()=>app.refetch()} message={showError(app.error)}/>:<div className="grid gap-6">
@@ -544,19 +627,22 @@ function ApplicationPage() {
           <p className="mt-1 font-bold" data-testid="text-application-status">{labels[currentApp.status]||currentApp.status}</p>
         </div>
         <span className="rounded-full bg-secondary px-3 py-1 text-xs">{new Date(currentApp.updatedAt).toLocaleDateString('tr-TR')}</span>
-        {currentApp.status==='PENDING'&&<p className="w-full text-xs text-muted-foreground">Başvurunuz inceleme aşamasındadır. Onay sürecinin tamamlanması için Vergi Levhası ve Yetki Belgesi dosyalarının ikisi de yüklenmiş olmalıdır.</p>}
-        {currentApp.status==='APPROVED'&&<div className="w-full rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900">Başvurunuz onaylandı. Emlak danışmanı hesabınız aktif edildi.</div>}
-        {currentApp.status==='REJECTED'&&<div className="w-full rounded-lg bg-rose-50 p-3 text-sm text-rose-800"><p className="font-semibold">Başvurunuz reddedildi{currentApp.rejectionReason?`: ${currentApp.rejectionReason}`:''}</p><p className="mt-1 text-xs">Bilgilerinizi düzenleyerek aşağıdaki formdan yeni bir başvuru gönderebilirsiniz. Yeni başvuru oluşturulduktan sonra belgelerinizi tekrar yüklemeniz gerekir.</p></div>}
+        {isDraft&&<p className="w-full text-xs text-muted-foreground">Başvurunuz henüz tamamlanmadı. Başvuruya devam edin.</p>}
+        {isPendingReview&&<p className="w-full text-xs text-muted-foreground">Başvurunuz inceleniyor.</p>}
+        {isApproved&&<div className="w-full rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900">Başvurunuz onaylandı.</div>}
+        {isRejected&&<div className="w-full rounded-lg bg-rose-50 p-3 text-sm text-rose-800"><p className="font-semibold">Başvurunuz reddedildi.</p><p className="mt-1">Ret gerekçesi: {currentApp.rejectionReason||'Belirtilmedi'}</p></div>}
       </div>}
 
       <div className="surface p-6">
-        <h2 className="mb-5 font-display text-xl font-bold">{currentApp?.status==='PENDING'?'Başvuru bilgilerini güncelle':currentApp?.status==='REJECTED'?'Yeni başvuru oluştur':'Firma bilgileri'}</h2>
-        <form className="grid gap-4 sm:grid-cols-2" onSubmit={form.handleSubmit(v=>mutation.mutate(v))}>
-          {fieldConfigs.map(({key,label,type='text',rules})=><label className="grid gap-1.5 text-sm font-semibold" key={key}>{label} *<input className={inputClass} type={type} disabled={isApproved||mutation.isPending} data-testid={`input-app-${key}`} {...form.register(key,rules)}/><span className="text-xs text-destructive">{form.formState.errors[key]?.message}</span></label>)}
-          <label className="grid gap-1.5 text-sm font-semibold sm:col-span-2">Açıklama<textarea className={`${inputClass} h-24 py-3`} disabled={isApproved||mutation.isPending} data-testid="input-app-description" {...form.register('description',{maxLength:{value:2000,message:'Açıklama en fazla 2000 karakter olabilir.'}})}/><span className="text-xs text-destructive">{form.formState.errors.description?.message}</span></label>
-          <button disabled={mutation.isPending||isApproved} data-testid="button-submit-application" className="h-11 rounded-xl bg-primary px-5 font-bold text-white disabled:opacity-60 sm:col-span-2">{mutation.isPending?'Gönderiliyor…':currentApp?.status==='PENDING'?'Başvuruyu güncelle':currentApp?.status==='REJECTED'?'Yeni başvuru oluştur':'Başvuruyu gönder'}</button>
+        <h2 className="mb-5 font-display text-xl font-bold">{isDraft?'Başvuru bilgilerini güncelle':isRejected?'Reddedilen başvuru':'Firma bilgileri'}</h2>
+        <form className="grid gap-4 sm:grid-cols-2" onSubmit={form.handleSubmit(v=>{if(canEditFields)mutation.mutate(v);})}>
+          {fieldConfigs.map(({key,label,type='text',rules})=><label className="grid gap-1.5 text-sm font-semibold" key={key}>{label} *<input className={inputClass} type={type} disabled={!canEditFields||formBusy} data-testid={`input-app-${key}`} {...form.register(key,rules)}/><span className="text-xs text-destructive">{form.formState.errors[key]?.message}</span></label>)}
+          <label className="grid gap-1.5 text-sm font-semibold sm:col-span-2">Açıklama<textarea className={`${inputClass} h-24 py-3`} disabled={!canEditFields||formBusy} data-testid="input-app-description" {...form.register('description',{maxLength:{value:2000,message:'Açıklama en fazla 2000 karakter olabilir.'}})}/><span className="text-xs text-destructive">{form.formState.errors.description?.message}</span></label>
+          {canEditFields&&<button disabled={formBusy} data-testid="button-submit-application" className="h-11 rounded-xl bg-primary px-5 font-bold text-white disabled:opacity-60 sm:col-span-2">{mutation.isPending?'Kaydediliyor…':isDraft?'Bilgileri kaydet':'Başvuruyu başlat'}</button>}
         </form>
-        <p className="mt-3 text-xs text-muted-foreground">İncelemedeki başvurunuzu güncelleyebilir veya reddedilmiş bir başvuru için yenisini gönderebilirsiniz.</p>
+        {isDraft&&<button type="button" disabled={formBusy} data-testid="button-send-application" className="mt-3 h-11 w-full rounded-xl border border-primary px-5 font-bold text-primary disabled:opacity-60" onClick={()=>submitReview.mutate()}>{submitReview.isPending?'Gönderiliyor…':'İncelemeye gönder'}</button>}
+        {isRejected&&<button type="button" disabled={formBusy} data-testid="button-revise-application" className="mt-3 h-11 w-full rounded-xl bg-primary px-5 font-bold text-white disabled:opacity-60" onClick={()=>reviseApplication.mutate()}>{reviseApplication.isPending?'Açılıyor…':'Başvuruyu düzenle'}</button>}
+        <p className="mt-3 text-xs text-muted-foreground">{isPendingReview?'İncelemedeki başvuru bilgileri ve belgeleri değiştirilemez.':isDraft?'Bilgileri kaydedin, belgeleri yükleyin ve hazır olduğunda incelemeye gönderin.':isRejected?'Düzenlemeye geçince aynı başvuru taslağa döner. Yüklü belgeler durur.':'Başvuruyu başlatmak taslak oluşturur. İncelemeye gönderilene kadar admin kuyruğuna düşmez.'}</p>
       </div>
 
       {currentApp&&<div className="surface p-6" data-testid="section-application-documents">
@@ -572,7 +658,7 @@ function ApplicationPage() {
                 <button type="button" disabled={downloadingId===doc.id} data-testid={`button-download-${type}`} className="text-left text-sm font-semibold text-primary underline disabled:opacity-60" onClick={()=>void download(doc.id,doc.originalName)}>{doc.originalName} · {downloadingId===doc.id?'İndiriliyor…':'İndir'}</button>
                 <p className="mt-1 text-xs text-muted-foreground">{(doc.sizeBytes/1024).toFixed(1)} KB · {new Date(doc.createdAt).toLocaleDateString('tr-TR')}</p>
               </div>:<p className="mt-2 text-xs text-muted-foreground">Henüz belge eklenmedi</p>}
-              {currentApp.status==='PENDING'?<label className={`mt-4 flex cursor-pointer items-center justify-center rounded-lg border border-dashed border-border px-3 py-3 text-sm font-semibold hover:border-primary ${isUploading?'pointer-events-none opacity-60':''}`}>{isUploading?'Yükleniyor…':doc?'Belgeyi değiştir':'Belge yükle'}<input className="sr-only" type="file" disabled={isUploading} data-testid={`input-file-${type}`} accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" onChange={e=>{const file=e.target.files?.[0];if(file)void upload(file,type);e.currentTarget.value='';}}/></label>:<p className="mt-3 text-xs text-muted-foreground">Belgeler yalnızca incelemedeki başvuru için yüklenebilir veya değiştirilebilir.</p>}
+              {isDraft?<label className={`mt-4 flex cursor-pointer items-center justify-center rounded-lg border border-dashed border-border px-3 py-3 text-sm font-semibold hover:border-primary ${isUploading?'pointer-events-none opacity-60':''}`}>{isUploading?'Yükleniyor…':doc?'Belgeyi değiştir':'Belge yükle'}<input className="sr-only" type="file" disabled={isUploading} data-testid={`input-file-${type}`} accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" onChange={e=>{const file=e.target.files?.[0];if(file)void upload(file,type);e.currentTarget.value='';}}/></label>:<p className="mt-3 text-xs text-muted-foreground">{isPendingReview?'Belgeler inceleme sırasında değiştirilemez.':isRejected?'Başvuruyu düzenlemeye açtıktan sonra belgeleri değiştirebilirsiniz.':'Onaylanmış başvurunun belgeleri değiştirilemez.'}</p>}
             </div>;
           })}
         </div>
@@ -584,23 +670,111 @@ function ApplicationPage() {
     </div>}</div></PublicLayout></Guard>;
 }
 
+function SuspendedAgentNotice() {
+  return <div role="status" data-testid="text-agent-suspended" className="mb-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">Emlakçı hesabınız askıya alınmıştır. Profesyonel işlemler geçici olarak kullanılamaz.</div>;
+}
+const agentNavItems = [
+  ['/panel', 'Genel Bakış'],
+  ['/panel/ilanlar', 'İlanlarım'],
+  ['/panel/ilanlar/yeni', 'Yeni İlan'],
+  ['/panel/emlakci-profili', 'Emlakçı Profilim'],
+  ['/favoriler', 'Favoriler'],
+] as const;
+function isAgentNavActive(href: string, location: string) {
+  if (href === '/panel') return location === '/panel';
+  if (href === '/panel/ilanlar') return location === '/panel/ilanlar' || /^\/panel\/ilanlar\/[^/]+\/duzenle$/.test(location);
+  return location === href;
+}
+function AgentNavLinks({ location, mobile = false, onNavigate }: { location: string; mobile?: boolean; onNavigate?: () => void }) {
+  const profile = useMyAgentProfile(DATA_MODE !== 'mock');
+  const suspended = profile.data?.isActive === false;
+  return <>{agentNavItems.map(([href, label]) => {
+    const active = isAgentNavActive(href, location);
+    const className = `flex min-h-11 w-full items-center gap-2.5 rounded-lg px-3 text-left text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${active ? 'bg-secondary text-primary' : 'text-foreground hover:bg-secondary/70 hover:text-primary'}`;
+    if (href === '/panel/ilanlar/yeni' && suspended) {
+      return <button key={href} type="button" disabled aria-disabled="true" aria-current={active ? 'page' : undefined} data-testid={`${mobile ? 'link-agent-nav-mobile' : 'link-agent-nav'}-${href}`} className={`${className} cursor-not-allowed opacity-50 hover:bg-transparent hover:text-foreground`}><span aria-hidden="true" className={`h-5 w-0.5 shrink-0 rounded-full ${active ? 'bg-primary' : 'bg-transparent'}`}/>{label}</button>;
+    }
+    return <Link key={href} href={href} aria-current={active ? 'page' : undefined} data-testid={`${mobile ? 'link-agent-nav-mobile' : 'link-agent-nav'}-${href}`} onClick={onNavigate} className={className}><span aria-hidden="true" className={`h-5 w-0.5 shrink-0 rounded-full ${active ? 'bg-primary' : 'bg-transparent'}`}/>{label}</Link>;
+  })}</>;
+}
 function PanelLayout({ children }: { children: ReactNode }) {
+  const [location] = useLocation();
+  const [open, setOpen] = useState(false);
+  const menuBtnRef = useRef<HTMLButtonElement>(null);
+  const closeBtnRef = useRef<HTMLButtonElement>(null);
+  const drawerRef = useRef<HTMLDivElement>(null);
+  const closeDrawer = useCallback(() => {
+    setOpen(false);
+    menuBtnRef.current?.focus();
+  }, []);
+  useEffect(() => { setOpen(false); }, [location]);
+  useEffect(() => {
+    const media = window.matchMedia('(min-width: 1024px)');
+    const closeOnDesktop = () => { if (media.matches) setOpen(false); };
+    media.addEventListener('change', closeOnDesktop);
+    return () => media.removeEventListener('change', closeOnDesktop);
+  }, []);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeDrawer();
+        return;
+      }
+      if (event.key !== 'Tab' || !drawerRef.current) return;
+      const focusable = [...drawerRef.current.querySelectorAll<HTMLElement>('a[href], button:not([disabled])')];
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const frame = window.setTimeout(() => closeBtnRef.current?.focus(), 0);
+    return () => {
+      window.clearTimeout(frame);
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [open, closeDrawer]);
   return <Guard roles={['AGENT']}>
-    <div className="min-h-[75vh] bg-[#f4f3ed]">
-      <div className="mx-auto max-w-[1440px] px-5 py-8 lg:px-10">
-        <div className="mb-8 flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-5">
-            <YuvaLogo />
-            <div className="sm:border-l sm:border-[#d8dbd1] sm:pl-5">
-              <p className="text-xs font-bold uppercase tracking-[.16em] text-primary">Emlakçı çalışma alanı</p>
-              <h1 className="mt-1 font-display text-3xl font-extrabold">İşinizi yönetin</h1>
+    <div className="min-h-[75vh] overflow-x-hidden bg-[#f4f3ed]">
+      <div className="mx-auto w-full max-w-[1440px] px-4 py-5 sm:px-5 lg:px-8 lg:py-8">
+        <header className="mb-5 flex items-start justify-between gap-3 lg:mb-8 lg:items-center">
+          <div className="flex min-w-0 flex-1 flex-col gap-1 lg:flex-row lg:items-center lg:gap-5">
+            <div className="flex min-w-0 items-center justify-between gap-3">
+              <YuvaLogo className="max-lg:[&_img]:h-9 max-lg:[&_img]:max-w-[8.75rem]"/>
+              <button ref={menuBtnRef} type="button" className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-border bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 lg:hidden" aria-label={open ? 'Menüyü kapat' : 'Menüyü aç'} aria-expanded={open} aria-controls="agent-panel-drawer" data-testid="button-agent-menu" onClick={() => { if (open) closeDrawer(); else setOpen(true); }}>{open ? <X size={18}/> : <Menu size={18}/>}</button>
             </div>
+            <div className="hidden min-w-0 border-l border-[#d8dbd1] pl-5 lg:block">
+              <p className="text-xs font-bold uppercase tracking-[.16em] text-primary">Emlakçı çalışma alanı</p>
+              <h1 className="mt-1 truncate font-display text-3xl font-extrabold">İşinizi yönetin</h1>
+            </div>
+            <p className="truncate text-sm font-semibold text-primary lg:hidden">Emlakçı Paneli</p>
           </div>
-          <Link href="/" className="flex items-center gap-2 text-sm font-semibold text-muted-foreground"><ArrowLeft size={16}/> Ana sayfaya dön</Link>
-        </div>
-        <div className="grid gap-7 lg:grid-cols-[230px_1fr]">
-          <aside className="surface h-fit p-3">
-            <nav className="grid gap-1">{[['/panel','Genel Bakış'],['/panel/ilanlar','İlanlarım'],['/panel/ilanlar/yeni','Yeni ilan'],['/panel/emlakci-profili','Emlakçı profilim'],['/favoriler','Favoriler']].map(([href,label])=><Link key={href} href={href} className="rounded-lg px-3 py-3 text-sm font-semibold hover:bg-secondary hover:text-primary">{label}</Link>)}</nav>
+          <Link href="/" className="hidden shrink-0 items-center gap-2 rounded-lg px-2 py-2 text-sm font-semibold text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 lg:flex"><ArrowLeft size={16}/> Ana sayfaya dön</Link>
+        </header>
+        {open && <div className="fixed inset-0 z-50 lg:hidden">
+          <button type="button" className="absolute inset-0 bg-[#203b34]/40" aria-label="Menüyü kapat" data-testid="button-agent-overlay" onClick={closeDrawer}/>
+          <div ref={drawerRef} id="agent-panel-drawer" role="dialog" aria-modal="true" aria-label="Emlakçı paneli menüsü" className="absolute inset-y-0 left-0 flex w-[min(18.5rem,calc(100%-2.75rem))] max-w-full flex-col border-r border-border bg-card shadow-xl">
+            <div className="flex h-16 shrink-0 items-center justify-between gap-3 border-b border-border px-4">
+              <YuvaLogo className="[&_img]:h-9 [&_img]:max-w-[8.75rem]"/>
+              <button ref={closeBtnRef} type="button" className="grid h-10 w-10 place-items-center rounded-xl border border-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" aria-label="Menüyü kapat" data-testid="button-agent-menu-close" onClick={closeDrawer}><X size={18}/></button>
+            </div>
+            <nav className="grid gap-1 overflow-y-auto p-3" aria-label="Emlakçı paneli"><AgentNavLinks location={location} mobile onNavigate={closeDrawer}/><Link href="/" onClick={closeDrawer} className="mt-2 flex min-h-11 items-center gap-2 rounded-lg border-t border-border px-3 pt-3 text-sm font-semibold text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"><ArrowLeft size={16}/> Ana sayfaya dön</Link></nav>
+          </div>
+        </div>}
+        <div className="grid items-start gap-6 lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-8">
+          <aside className="surface sticky top-6 hidden h-fit p-3 lg:block">
+            <nav className="grid gap-1" aria-label="Emlakçı paneli"><AgentNavLinks location={location}/></nav>
           </aside>
           <section className="min-w-0">{children}</section>
         </div>
@@ -609,29 +783,176 @@ function PanelLayout({ children }: { children: ReactNode }) {
   </Guard>;
 }
 function AgentHome() {
-  const isMock=DATA_MODE==='mock';
-  const q=useMineProperties({page:1,limit:100},!isMock);
-  const profile=useMyAgentProfile(!isMock);
-  if(isMock)return <PanelLayout><EmptyState title="Bu özellik gerçek API bağlantısı gerektirir" text="Emlakçı çalışma alanını kullanmak için gerçek API modunda giriş yapın." href="/ilanlar" action="İlanları keşfet"/></PanelLayout>;
-  const activeCount=q.data?.items.filter(p=>p.status==='ACTIVE').length;
-  const nonActiveCount=q.data?.items.filter(p=>p.status!=='ACTIVE').length;
+  const isMock = DATA_MODE === 'mock';
+  const enabled = !isMock;
+  const recent = useMineProperties({ page: 1, limit: 5 }, enabled);
+  const active = useMineProperties({ page: 1, limit: 1, status: 'ACTIVE' }, enabled);
+  const inactive = useMineProperties({ page: 1, limit: 1, status: 'INACTIVE' }, enabled);
+  const sold = useMineProperties({ page: 1, limit: 1, status: 'SOLD' }, enabled);
+  const rented = useMineProperties({ page: 1, limit: 1, status: 'RENTED' }, enabled);
+  const profile = useMyAgentProfile(enabled);
+  if (isMock) return <PanelLayout><EmptyState title="Bu özellik gerçek API bağlantısı gerektirir" text="Emlakçı çalışma alanını kullanmak için gerçek API modunda giriş yapın." href="/ilanlar" action="İlanları keşfet"/></PanelLayout>;
+  const suspended = profile.data?.isActive === false;
+  const completed = sold.data && rented.data ? sold.data.total + rented.data.total : undefined;
+  const reloadListings = () => { void recent.refetch(); void active.refetch(); void inactive.refetch(); void sold.refetch(); void rented.refetch(); };
+  const stats = [
+    { label: 'Toplam İlan', value: recent.data?.total, error: recent.error, loading: recent.isLoading, hint: 'Silinmemiş ilanlar', testId: 'stat-total-properties' },
+    { label: 'Yayındaki İlan', value: active.data?.total, error: active.error, loading: active.isLoading, hint: 'Yayında olanlar', testId: 'stat-active-properties' },
+    { label: 'Pasif İlan', value: inactive.data?.total, error: inactive.error, loading: inactive.isLoading, hint: 'Pasif durumundaki ilanlar', testId: 'stat-inactive-properties' },
+    { label: 'Sonuçlanan', value: completed, error: sold.error || rented.error, loading: sold.isLoading || rented.isLoading, hint: 'Satıldı veya kiralandı', testId: 'stat-completed-properties' },
+  ];
+  const countsPending = stats.some(stat => stat.loading && stat.value === undefined);
+  const anyCountValue = stats.some(stat => stat.value !== undefined);
+  const anyCountError = stats.some(stat => stat.error);
+  const initialCountsError = anyCountError && !anyCountValue && !countsPending;
+  const partialCountError = stats.some(stat => stat.error && stat.value === undefined) && anyCountValue;
+  const staleCountError = stats.some(stat => stat.error && stat.value !== undefined) && !partialCountError;
   return <PanelLayout>
-    {profile.data&&!profile.data.isActive&&<div role="status" className="mb-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">Emlakçı profiliniz şu anda <b>pasif</b> durumdadır. Profiliniz pasifken public profiliniz ve ilanlarınız katalogda görünmez ve yeni ilan oluşturulamaz.</div>}
-    <div className="surface p-7"><p className="text-xs font-bold uppercase tracking-[.15em] text-primary">Genel bakış</p><h2 className="mt-2 font-display text-3xl font-extrabold">{profile.data?.companyName||'Portföyünüze hoş geldiniz'}</h2><p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">İlanlarınızı güncel tutun; yeni bir ilan ekleyerek arayanlarla buluşun.</p><div className="mt-6 flex flex-wrap gap-3"><Link href="/panel/ilanlar/yeni" className="rounded-xl bg-primary px-5 py-3 text-sm font-bold text-white">Yeni ilan oluştur</Link><Link href="/panel/ilanlar" className="rounded-xl border border-border px-5 py-3 text-sm font-bold">İlanlarımı görüntüle</Link></div></div>
-    <div className="mt-6 grid gap-4 sm:grid-cols-4">
-      <div className="surface p-5"><small className="text-xs text-muted-foreground">Toplam ilan</small><p className="mt-1 text-3xl font-extrabold" data-testid="stat-total-properties">{q.data?.total??'—'}</p><small className="text-xs text-muted-foreground">Silinmemiş tüm kayıtlar</small></div>
-      <div className="surface p-5"><small className="text-xs text-muted-foreground">Yayındaki ilanlar</small><p className="mt-1 text-3xl font-extrabold" data-testid="stat-active-properties">{activeCount??'—'}</p><small className="text-xs text-muted-foreground">İlk 100 kayıttaki aktif ilan</small></div>
-      <div className="surface p-5"><small className="text-xs text-muted-foreground">Pasif / Satıldı / Kiralandı</small><p className="mt-1 text-3xl font-extrabold" data-testid="stat-inactive-properties">{nonActiveCount??'—'}</p><small className="text-xs text-muted-foreground">İlk 100 kayıttaki diğer durumlar</small></div>
-      <Link href="/panel/emlakci-profili" className="surface p-5 hover:border-primary"><small className="text-xs text-muted-foreground">Emlakçı profili · {profile.data?(profile.data.isActive?'Aktif':'Pasif'):'—'}</small><p className="mt-2 font-bold">Bilgilerinizi güncelleyin <ArrowRight className="inline" size={15}/></p></Link>
+    {suspended && <SuspendedAgentNotice/>}
+    <div className="grid min-w-0 grid-cols-1 gap-5">
+      <section className="surface p-5 sm:p-6">
+        <p className="text-xs font-bold uppercase tracking-[.15em] text-primary">Genel Bakış</p>
+        {profile.isLoading ? <div className="skeleton mt-3 h-10 w-56 max-w-full"/> : profile.error ? <h2 className="mt-2 font-display text-3xl font-extrabold">Bilgiler yüklenemedi</h2> : <h2 className="mt-2 break-words font-display text-3xl font-extrabold [overflow-wrap:anywhere]">{profile.data?.companyName || 'Portföyünüze hoş geldiniz'}</h2>}
+        <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">Portföyünüzü ve ilanlarınızı buradan yönetebilirsiniz.</p>
+        <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+          {suspended
+            ? <button type="button" disabled className="inline-flex h-11 items-center justify-center rounded-xl bg-primary px-5 text-sm font-bold text-white disabled:opacity-50" data-testid="link-dashboard-new-property">+ Yeni İlan</button>
+            : <Link href="/panel/ilanlar/yeni" className="inline-flex h-11 items-center justify-center rounded-xl bg-primary px-5 text-sm font-bold text-white" data-testid="link-dashboard-new-property">+ Yeni İlan</Link>}
+          <Link href="/panel/ilanlar" className="inline-flex h-11 items-center justify-center rounded-xl border border-border px-5 text-sm font-bold">İlanlarımı Görüntüle</Link>
+        </div>
+      </section>
+      {initialCountsError ? <ErrorState retry={reloadListings} message="Bilgiler yüklenirken bir sorun oluştu."/> : <>
+        {(partialCountError || staleCountError) && <div className="surface flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between" role="alert" data-testid={partialCountError ? 'alert-dashboard-counts-partial' : 'alert-dashboard-counts-stale'}>
+          <p className="text-sm text-muted-foreground">{partialCountError ? 'Bazı sayaçlar yüklenemedi.' : 'Sayaçlar güncellenemedi. Son başarılı değerler gösteriliyor.'}</p>
+          <button type="button" onClick={reloadListings} className="inline-flex h-10 items-center justify-center rounded-lg bg-primary px-4 text-sm font-bold text-white" data-testid="button-dashboard-counts-retry">Yeniden dene</button>
+        </div>}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4" aria-busy={countsPending}>
+          {stats.map(stat => <div key={stat.testId} className="surface p-5"><p className="text-xs font-semibold text-muted-foreground">{stat.label}</p>{stat.loading && stat.value === undefined ? <div className="skeleton mt-3 h-9 w-16"/> : <p className="mt-2 font-display text-3xl font-extrabold" data-testid={stat.testId}>{stat.value ?? '—'}</p>}<p className="mt-1 text-xs text-muted-foreground">{stat.hint}</p></div>)}
+        </div>
+      </>}
+      <section className="surface p-5" aria-labelledby="agent-profile-summary">
+        <h3 id="agent-profile-summary" className="font-display text-xl font-bold">Emlakçı Profiliniz</h3>
+        {profile.isLoading ? <div className="skeleton mt-4 h-20"/> : profile.error ? <div className="mt-4"><ErrorState retry={() => { void profile.refetch(); }} message="Bilgiler yüklenirken bir sorun oluştu."/></div> : profile.data && <div className="mt-4 flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-4">
+            <ProfileLogo url={profile.data.logoUrl} alt="Şirket logosu" className="h-16 w-16 shrink-0 overflow-hidden rounded-2xl object-cover"/>
+            <div className="min-w-0">
+              <p className="truncate font-bold">{profile.data.companyName}</p>
+              <p className={`mt-1 inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${profile.data.isActive ? 'bg-secondary text-primary' : 'bg-amber-50 text-amber-950'}`} data-testid="text-agent-profile-status">{profile.data.isActive ? 'Aktif' : 'Askıya Alındı'}</p>
+              <p className="mt-2 truncate text-sm text-muted-foreground">{profile.data.email}</p>
+              <p className="truncate text-sm text-muted-foreground">{profile.data.phone}</p>
+            </div>
+          </div>
+          <Link href="/panel/emlakci-profili" className="inline-flex h-11 shrink-0 items-center justify-center rounded-xl border border-border px-5 text-sm font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" data-testid="link-dashboard-profile">{suspended ? 'Profili Görüntüle' : 'Profili Düzenle'}</Link>
+        </div>}
+      </section>
+      <section aria-labelledby="recent-properties">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h3 id="recent-properties" className="font-display text-xl font-bold">Son İlanlar</h3>
+          <Link href="/panel/ilanlar" className="shrink-0 text-sm font-bold text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" data-testid="link-dashboard-all-listings">Tümünü Gör</Link>
+        </div>
+        {initialCountsError ? null : recent.isLoading && !recent.data ? <div className="grid gap-3">{[1, 2, 3].map(item => <div key={item} className="surface p-4"><div className="skeleton h-14"/></div>)}</div> : recent.error && !recent.data ? <ErrorState retry={() => { void recent.refetch(); }} message="Son ilanlar yüklenemedi."/> : recent.data?.items.length ? <div className="grid gap-3">{recent.data.items.map(property => <article key={property.id} className="surface flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between" data-testid={`row-dashboard-property-${property.id}`}>
+          <div className="flex min-w-0 flex-1 gap-3">
+          <ListingCover url={property.coverImageUrl} title={property.title} compact className="h-16 w-20 shrink-0 rounded-lg"/>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2"><h4 className="font-bold [overflow-wrap:anywhere]">{property.title}</h4><span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-semibold text-primary">{labels[property.status]}</span></div>
+            <p className="mt-1 font-extrabold text-primary">{money(property.price)}</p>
+            <p className="mt-1 text-xs text-muted-foreground [overflow-wrap:anywhere]">{[property.neighborhood, property.district, property.city].filter(Boolean).join(', ')} · {new Date(property.createdAt).toLocaleDateString('tr-TR')}</p>
+          </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {property.status === 'ACTIVE' && !suspended && <Link href={`/ilan/${property.id}`} className="inline-flex h-10 items-center rounded-lg border border-border px-3 text-sm text-muted-foreground hover:text-foreground">İlanı gör</Link>}
+            <Link href={`/panel/ilanlar/${property.id}/duzenle`} className="inline-flex h-10 items-center rounded-lg border border-border px-3 text-sm font-semibold">{suspended ? 'Görüntüle' : 'Düzenle'}</Link>
+          </div>
+        </article>)}</div> : <div className="surface px-5 py-8 text-center"><h4 className="font-display text-xl font-bold">Henüz ilanınız bulunmuyor.</h4>{!suspended && <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">İlk ilanınızı oluşturarak portföyünüzü oluşturmaya başlayın.</p>}{!suspended && <Link href="/panel/ilanlar/yeni" className="mt-5 inline-flex h-11 items-center justify-center rounded-xl bg-primary px-5 text-sm font-bold text-white">+ Yeni İlan</Link>}</div>}
+      </section>
     </div>
-    {q.error&&<p className="mt-4 text-sm text-destructive">{showError(q.error)}</p>}
   </PanelLayout>;
 }
+function isOwnedFilePath(path: string) {
+  return path.includes('/me/files/');
+}
+function ownerImagePath(url: string | null | undefined, individual: boolean) {
+  if (!url) return null;
+  if (isOwnedFilePath(url)) return url;
+  const fileId = url.match(/\/files\/([0-9a-f-]{36})(?:$|[/?#])/i)?.[1];
+  if (!fileId) return url;
+  return individual ? `/api/v1/user-properties/me/files/${fileId}` : `/api/v1/properties/me/files/${fileId}`;
+}
+function useOwnedImage(path: string | null | undefined) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    if (!path) {
+      setSrc(null);
+      setFailed(false);
+      setLoading(false);
+      return;
+    }
+    if (!isOwnedFilePath(path)) {
+      setSrc(fileUrl(path));
+      setFailed(false);
+      setLoading(false);
+      return;
+    }
+    let objectUrl = '';
+    let cancelled = false;
+    setSrc(null);
+    setFailed(false);
+    setLoading(true);
+    const requestPath = path.startsWith('/api/v1') ? path.slice('/api/v1'.length) : path;
+    request<Blob>(requestPath, {}, { auth: true }).then(blob => {
+      if (cancelled) return;
+      objectUrl = URL.createObjectURL(blob);
+      setSrc(objectUrl);
+      setLoading(false);
+    }).catch(() => {
+      if (cancelled) return;
+      setFailed(true);
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [path]);
+  return { src, failed, loading, fail: () => setFailed(true) };
+}
+function EditorImage({ url, individual }: { url: string; individual: boolean }) {
+  const image = useOwnedImage(ownerImagePath(url, individual));
+  if (image.src && !image.failed) return <img src={image.src} alt="Yüklenen ilan fotoğrafı" onError={image.fail} className="aspect-[4/3] w-full object-cover"/>;
+  if (image.loading) return <div className="aspect-[4/3] w-full bg-muted" aria-busy="true" aria-label="Fotoğraf yükleniyor"/>;
+  return <div className="grid aspect-[4/3] w-full place-items-center bg-muted px-2 text-center text-xs font-semibold text-muted-foreground" role="img" aria-label="Görsel yüklenemedi">Görsel yüklenemedi</div>;
+}
+function ListingCover({ url, title, className, compact = false }: { url?: string | null; title: string; className: string; compact?: boolean }) {
+  const image = useOwnedImage(url);
+  return <div className={`overflow-hidden bg-muted ${className}`}>
+    {image.src && !image.failed ? <img src={image.src} alt={title} onError={image.fail} className="h-full w-full object-cover"/> : image.loading ? <div className="h-full w-full" aria-busy="true" aria-label="Kapak görseli yükleniyor"/> : <div className="grid h-full w-full place-items-center gap-1 px-2 text-center text-primary" role="img" aria-label="Görsel yok"><Home size={compact ? 18 : 22} strokeWidth={1.4}/>{!compact && <span className="text-[11px] font-semibold text-muted-foreground">Görsel yok</span>}</div>}
+  </div>;
+}
 const transitions:Record<PropertyStatus,PropertyStatus[]>={ACTIVE:['INACTIVE','SOLD','RENTED'],INACTIVE:['ACTIVE'],SOLD:['ACTIVE'],RENTED:['ACTIVE']};
+const propertyStatusFilters = [
+  ['', 'Tümü'],
+  ['ACTIVE', 'Yayında'],
+  ['INACTIVE', 'Pasif'],
+  ['SOLD', 'Satıldı'],
+  ['RENTED', 'Kiralandı'],
+] as const;
+function listingFacts(property: { listingType: string; propertyType: string; rooms: number; livingRooms: number; grossAreaM2: string }) {
+  const rooms = property.propertyType === 'LAND' ? '' : ` · ${property.rooms}+${property.livingRooms}`;
+  return `${labels[property.listingType]} · ${labels[property.propertyType]}${rooms} · ${area(property.grossAreaM2)} m²`;
+}
 function AgentPropertiesPage() {
   const isMock=DATA_MODE==='mock';
   const [page,setPage]=useState(1); const [statusFilter,setStatusFilter]=useState<PropertyStatus|''>('');
   const q=useMineProperties({page,limit:20,...(statusFilter?{status:statusFilter}:{})},!isMock);
+  const profile=useMyAgentProfile(!isMock);
+  useEffect(()=>{
+    if(!q.data)return;
+    const pages=Math.max(1, Math.ceil(q.data.total / q.data.limit));
+    if(page>pages)setPage(pages);
+  },[q.data,page]);
+  const suspended=profile.data?.isActive===false;
   const invalidate=useInvalidateMarketplace(); const {toast}=useToast();
   const [notice,setNotice]=useState(''); const [errorMsg,setErrorMsg]=useState('');
   const action=useMutation({
@@ -655,41 +976,44 @@ function AgentPropertiesPage() {
     onError:(err)=>{setNotice('');setErrorMsg(showError(err));},
   });
   if(isMock)return <PanelLayout><EmptyState title="Bu özellik gerçek API bağlantısı gerektirir" text="İlanlarınızı yönetmek için gerçek API modunda giriş yapın." href="/ilanlar" action="İlanları keşfet"/></PanelLayout>;
+  const actionClass = 'inline-flex h-10 items-center rounded-lg border border-border px-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50';
   return <PanelLayout>
-    <div className="flex flex-wrap items-end justify-between gap-3">
-      <div><h2 className="font-display text-2xl font-extrabold">İlanlarım</h2><p className="mt-1 text-sm text-muted-foreground">İlanlarınızı, fiyatlarınızı ve yayın durumlarını yönetin.</p></div>
-      <div className="flex flex-wrap items-center gap-3">
-        <select aria-label="Duruma göre filtrele" className="h-11 rounded-xl border border-input bg-background px-3 text-sm" value={statusFilter} onChange={e=>{setStatusFilter(e.target.value as PropertyStatus|'');setPage(1);}} data-testid="select-my-properties-status">
-          <option value="">Tüm durumlar</option>
-          {(['ACTIVE','INACTIVE','SOLD','RENTED'] as PropertyStatus[]).map(s=><option key={s} value={s}>{labels[s]}</option>)}
-        </select>
-        <Link href="/panel/ilanlar/yeni" className="rounded-xl bg-primary px-4 py-3 text-sm font-bold text-white" data-testid="link-create-property">+ Yeni ilan</Link>
-      </div>
+    {suspended&&<SuspendedAgentNotice/>}
+    <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <div className="min-w-0"><h2 className="font-display text-2xl font-extrabold">İlanlarım</h2><p className="mt-1 text-sm text-muted-foreground">Portföyünüzdeki ilanları yönetin.</p></div>
+      {suspended?<button type="button" disabled className="inline-flex h-11 items-center justify-center rounded-xl bg-primary px-4 text-sm font-bold text-white disabled:opacity-50" data-testid="link-create-property">+ Yeni İlan</button>:<Link href="/panel/ilanlar/yeni" className="inline-flex h-11 items-center justify-center rounded-xl bg-primary px-4 text-sm font-bold text-white" data-testid="link-create-property">+ Yeni İlan</Link>}
+    </div>
+    <div className="mt-4 flex flex-wrap gap-2" role="group" aria-label="Duruma göre filtrele">
+      {propertyStatusFilters.map(([value, label]) => <button key={label} type="button" aria-pressed={statusFilter === value} data-testid={`button-filter-${value || 'all'}`} className={`rounded-full border px-3 py-2 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${statusFilter === value ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card'}`} onClick={() => { setStatusFilter(value); setPage(1); }}>{label}</button>)}
     </div>
     {notice&&<p role="status" className="mt-3 text-sm text-primary">{notice}</p>}
     {errorMsg&&<p role="alert" className="mt-3 text-sm text-destructive">{errorMsg}</p>}
     <div className="mt-5 grid gap-3">
-      {q.isLoading?[1,2,3].map(i=><div className="surface p-5" key={i}><div className="skeleton h-14"/></div>):q.error?<ErrorState retry={()=>q.refetch()} message={showError(q.error)}/>:q.data?.items.length?q.data.items.map(p=><article key={p.id} className="surface grid gap-4 p-5 md:grid-cols-[1fr_auto]" data-testid={`row-my-property-${p.id}`}>
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="font-bold">{p.title}</h3>
-            <span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-semibold text-primary" data-testid={`badge-status-${p.id}`}>{labels[p.status]}</span>
+      {q.isLoading?[1,2,3].map(i=><div className="surface p-4" key={i}><div className="skeleton aspect-video w-full rounded-xl md:h-[100px] md:w-[140px]"/></div>):q.error?<ErrorState retry={()=>q.refetch()} message="İlanlar yüklenirken bir sorun oluştu."/>:q.data?.items.length?q.data.items.map(p=><article key={p.id} className="surface min-w-0 p-4" data-testid={`row-my-property-${p.id}`}>
+        <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-center">
+          <div className="flex min-w-0 flex-1 flex-col gap-4 md:flex-row md:items-start">
+            <ListingCover url={p.coverImageUrl} title={p.title} className="aspect-video w-full rounded-xl md:aspect-auto md:h-[100px] md:w-[140px] md:shrink-0"/>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-start justify-between gap-3"><h3 className="font-bold [overflow-wrap:anywhere]">{p.title}</h3><span className="shrink-0 rounded-full bg-secondary px-2.5 py-1 text-xs font-semibold text-primary" data-testid={`badge-status-${p.id}`}>{labels[p.status]}</span></div>
+              <p className="mt-2 text-lg font-extrabold text-primary">{money(p.price)}</p>
+              <p className="mt-1 text-sm text-muted-foreground">{listingFacts(p)}</p>
+              <p className="mt-1 text-sm text-muted-foreground [overflow-wrap:anywhere]">{[p.neighborhood, p.district, p.city].filter(Boolean).join(', ')}</p>
+              <p className="mt-1 text-xs text-muted-foreground">Güncellendi: {new Date(p.updatedAt).toLocaleDateString('tr-TR')}</p>
+            </div>
           </div>
-          <p className="mt-2 text-lg font-extrabold text-primary">{money(p.price)} <span className="text-xs font-normal text-muted-foreground">· {labels[p.listingType]} · {labels[p.propertyType]} · {p.rooms}+{p.livingRooms} · {area(p.grossAreaM2)} m²</span></p>
-          <p className="mt-1 text-xs text-muted-foreground">{p.neighborhood}, {p.district}, {p.city} · {new Date(p.createdAt).toLocaleDateString('tr-TR')}</p>
+          <div className="flex flex-wrap items-center gap-2 lg:max-w-xs lg:justify-end">
+            {p.status==='ACTIVE'&&!suspended&&<Link href={`/ilan/${p.id}`} className={actionClass}>İlanı Gör</Link>}
+            <Link href={`/panel/ilanlar/${p.id}/duzenle`} className={actionClass} data-testid={`link-edit-property-${p.id}`}>{suspended?'Görüntüle':'Düzenle'}</Link>
+            <select aria-label="İlan durumunu değiştir" disabled={action.isPending||suspended} data-testid={`select-status-${p.id}`} className="h-10 rounded-lg border border-border bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50" value="" onChange={e=>{if(e.target.value)action.mutate({id:p.id,status:e.target.value as PropertyStatus});e.currentTarget.value='';}}>
+              <option value="">Durum</option>
+              {transitions[p.status].map(s=><option key={s} value={s}>{labels[s]}</option>)}
+            </select>
+            <button type="button" disabled={remove.isPending||suspended} data-testid={`button-delete-property-${p.id}`} className="inline-flex h-10 items-center rounded-lg border border-destructive/30 px-3 text-sm text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50" onClick={()=>{if(window.confirm('İlanı silmek istediğinize emin misiniz?'))remove.mutate(p.id);}}>Sil</button>
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {p.status==='ACTIVE'&&<Link href={`/ilan/${p.id}`} className="rounded-lg border border-border px-3 py-2 text-sm text-muted-foreground hover:text-foreground">İlanı gör</Link>}
-          <Link href={`/panel/ilanlar/${p.id}/duzenle`} className="rounded-lg border border-border px-3 py-2 text-sm font-semibold" data-testid={`link-edit-property-${p.id}`}>Düzenle</Link>
-          <select aria-label="İlan durumunu değiştir" disabled={action.isPending} data-testid={`select-status-${p.id}`} className="h-10 rounded-lg border border-border bg-background px-2 text-sm disabled:opacity-60" value="" onChange={e=>{if(e.target.value)action.mutate({id:p.id,status:e.target.value as PropertyStatus});e.currentTarget.value='';}}>
-            <option value="">Durum değiştir</option>
-            {transitions[p.status].map(s=><option key={s} value={s}>{labels[s]}</option>)}
-          </select>
-          <button type="button" disabled={remove.isPending} data-testid={`button-delete-property-${p.id}`} className="rounded-lg border border-destructive/30 px-3 py-2 text-sm text-destructive disabled:opacity-60" onClick={()=>{if(window.confirm('İlanı silmek istediğinize emin misiniz?'))remove.mutate(p.id);}}>Sil</button>
-        </div>
-      </article>):<EmptyState title={statusFilter?'Bu durumda ilanınız bulunmuyor':'Henüz ilan eklemediniz'} text={statusFilter?'Farklı bir durum filtresi seçerek diğer ilanlarınızı görüntüleyebilirsiniz.':'İlk ilanınızı oluşturarak portföyünüzü paylaşmaya başlayın.'} href="/panel/ilanlar/yeni" action="İlan oluştur"/>}
+      </article>):statusFilter?<div className="surface px-5 py-8 text-center"><h3 className="font-display text-xl font-bold">{labels[statusFilter]} ilan bulunamadı.</h3></div>:<EmptyState title="Henüz ilanınız bulunmuyor." text={suspended?'Emlakçı hesabınız askıya alınmıştır. Profesyonel işlemler geçici olarak kullanılamaz.':'İlk ilanınızı oluşturarak portföyünüzü oluşturmaya başlayın.'} {...(suspended?{}:{href:'/panel/ilanlar/yeni',action:'+ Yeni İlan'})}/>}
     </div>
-    {q.data&&<Pagination page={q.data.page} limit={q.data.limit} total={q.data.total} onChange={setPage}/>}
+    {q.data&&!q.error&&<Pagination page={q.data.page} limit={q.data.limit} total={q.data.total} onChange={setPage}/>}
   </PanelLayout>;
 }
 type DraftImage = { key: string; file: File; previewUrl: string; isCover: boolean };
@@ -821,13 +1145,11 @@ function AccountDashboardPage() {
   </AccountLayout>;
 }
 function AccountListingThumb({ url }: { url?: string | null }) {
-  const src = fileUrl(url);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [src]);
-  if (src && !failed) {
-    return <img src={src} alt="" className="h-20 w-20 shrink-0 overflow-hidden rounded-lg object-cover" onError={() => setFailed(true)}/>;
+  const image = useOwnedImage(url);
+  if (image.src && !image.failed) {
+    return <img src={image.src} alt="" className="h-20 w-20 shrink-0 overflow-hidden rounded-lg object-cover" onError={image.fail}/>;
   }
-  return <span className="grid h-20 w-20 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground" aria-hidden="true"><Home size={18}/></span>;
+  return <span className="grid h-20 w-20 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground" aria-hidden="true" aria-busy={image.loading}><Home size={18}/></span>;
 }
 function UserPropertyRow({ item }: { item: UserPropertyRecord }) {
   return <div className="surface flex min-w-0 items-center gap-3 p-3">
@@ -912,6 +1234,8 @@ function MyListingsPage() {
 function PropertyEditor({ edit = false, mode = 'AGENT' }: { edit?: boolean; mode?: 'AGENT' | 'INDIVIDUAL' }) {
   const individual = mode === 'INDIVIDUAL';
   const isMock=DATA_MODE==='mock';
+  const agentProfile=useMyAgentProfile(!isMock&&!individual);
+  const suspended=!individual&&agentProfile.data?.isActive===false;
   const [,agentParams]=useRoute('/panel/ilanlar/:id/duzenle');
   const [,userParams]=useRoute('/hesabim/ilanlar/:id/duzenle');
   const id=edit?((individual?userParams?.id:agentParams?.id)||''):'';
@@ -977,9 +1301,10 @@ function PropertyEditor({ edit = false, mode = 'AGENT' }: { edit?: boolean; mode
   useEffect(()=>{
     if(record.data){
       const r=record.data;
+      setUploads((r.images??[]).slice().sort((a,b)=>a.sortOrder-b.sortOrder));
+      if(form.formState.isDirty)return;
       setCityId(r.cityId);
       setDistrictId(r.districtId);
-      setUploads((r.images??[]).slice().sort((a,b)=>a.sortOrder-b.sortOrder));
       form.reset({
         title:r.title,
         description:r.description,
@@ -1016,13 +1341,15 @@ function PropertyEditor({ edit = false, mode = 'AGENT' }: { edit?: boolean; mode
         assertPropertyFields(v, land);
         return userPropertiesApi.updateUserProperty(id, propertyPayload(v, land));
       }
-      assertPropertyFields(v, false);
-      const data = propertyPayload(v, false);
+      const land=v.propertyType==='LAND';
+      assertPropertyFields(v, land);
+      const data = propertyPayload(v, land);
       return edit
         ? propertiesApi.updateProperty(id,data as UpdatePropertyRequest)
         : propertiesApi.createProperty(data);
     },
     onSuccess:async result=>{
+      form.reset(form.getValues());
       if(individual){
         qc.setQueryData(keys.userProperty(result.id),(prev:typeof record.data)=>({
           ...result,
@@ -1268,9 +1595,9 @@ function PropertyEditor({ edit = false, mode = 'AGENT' }: { edit?: boolean; mode
     }
   };
 
-  const field=(name:keyof CreatePropertyRequest,label:string,type='text',required=true,placeholder?:string,extraRules?:RegisterOptions<CreatePropertyRequest,keyof CreatePropertyRequest>)=><label key={name} className="grid gap-1.5 text-sm font-semibold">{label}{required?' *':''}<input className={inputClass} type={type} required={required} aria-invalid={Boolean(form.formState.errors[name])} step={type==='number'?'1':undefined} placeholder={placeholder} data-testid={`input-prop-${name}`} {...form.register(name,{required:required?`${label} zorunludur.`:false,...(type==='number'?{setValueAs:(v:string)=>v===''||v===null||v===undefined?undefined:Number(v)}:{}),...(name==='title'?{minLength:{value:5,message:'Başlık en az 5 karakter olmalıdır.'},maxLength:{value:160,message:'Başlık en fazla 160 karakter olabilir.'}}:{}),...(name==='address'?{minLength:{value:5,message:'Açık adres en az 5 karakter olmalıdır.'},maxLength:{value:300,message:'Açık adres en fazla 300 karakter olabilir.'}}:{}),...extraRules})}/><span className="text-xs text-destructive">{form.formState.errors[name]?.message as string}</span></label>;
+  const field=(name:keyof CreatePropertyRequest,label:string,type='text',required=true,placeholder?:string,extraRules?:RegisterOptions<CreatePropertyRequest,keyof CreatePropertyRequest>)=><label key={name} className="grid min-w-0 gap-1.5 text-sm font-semibold">{label}{required?' *':''}<input className={`${inputClass} min-w-0`} type={type} required={required} disabled={suspended} aria-invalid={Boolean(form.formState.errors[name])} step={type==='number'?'1':undefined} placeholder={placeholder} data-testid={`input-prop-${name}`} {...form.register(name,{required:required?`${label} zorunludur.`:false,...(type==='number'?{setValueAs:(v:string)=>v===''||v===null||v===undefined?undefined:Number(v)}:{}),...(name==='title'?{minLength:{value:5,message:'Başlık en az 5 karakter olmalıdır.'},maxLength:{value:160,message:'Başlık en fazla 160 karakter olabilir.'}}:{}),...(name==='address'?{minLength:{value:5,message:'Açık adres en az 5 karakter olmalıdır.'},maxLength:{value:300,message:'Açık adres en fazla 300 karakter olabilir.'}}:{}),...extraRules})}/><span className="min-h-4 text-xs text-destructive">{form.formState.errors[name]?.message as string}</span></label>;
 
-  const land=individual && form.watch('propertyType')==='LAND';
+  const land=form.watch('propertyType')==='LAND';
   const busy=individual&&!edit?publishing:mutation.isPending;
   const frame=(children:ReactNode)=>individual&&edit
     ? <AccountLayout>{children}</AccountLayout>
@@ -1279,46 +1606,60 @@ function PropertyEditor({ edit = false, mode = 'AGENT' }: { edit?: boolean; mode
       : <PanelLayout>{children}</PanelLayout>;
   const features:(string[])[]=[['isFurnished','Eşyalı'],['hasBalcony','Balkon'],...(land?[]:[['hasElevator','Asansör']]),['hasParking','Otopark'],['inSite','Site içinde']];
 
+  useUnsavedChanges(!suspended && (form.formState.isDirty || (individual && !edit && drafts.length > 0)));
+  const missingRecord=edit&&!id;
   if(isMock)return frame(<EmptyState title="Bu özellik gerçek API bağlantısı gerektirir" text="İlan oluşturmak ve düzenlemek için gerçek API modunda giriş yapın." href="/ilanlar" action="İlanları keşfet"/>);
-  if(edit&&record.isLoading)return frame(<div className="surface p-8"><div className="skeleton h-80"/></div>);
-  if(edit&&record.error){
-    const notFound=record.error instanceof ApiRequestError&&(record.error.status===404||(individual&&record.error.status===400));
+  if(edit&&id&&(record.isLoading||record.isPending))return frame(<div className="surface p-8"><div className="skeleton h-80"/></div>);
+  if(missingRecord||(edit&&record.error)){
+    const notFound=missingRecord||(record.error instanceof ApiRequestError&&(record.error.status===404||(individual&&record.error.status===400)));
     return frame(notFound?<EmptyState title={individual?'İlan bulunamadı veya bu ilana erişim yetkiniz yok.':'İlan bulunamadı'} text={individual?'Adres hatalı olabilir ya da ilan başka bir hesaba aittir.':'Bu ilan mevcut değil, silinmiş veya başka bir hesaba ait.'} href={individual?'/hesabim/ilanlar':'/panel/ilanlar'} action="İlanlarıma dön"/>:<ErrorState retry={()=>record.refetch()} message={showError(record.error)}/>);
   }
 
+  const heading=individual&&!edit?'İlan Ver':edit?'İlanı Düzenle':'Yeni İlan';
+  const intro=individual&&!edit?'Bilgileri doldurun, fotoğrafları seçin ve ilanı yayınlayın.':edit?'İlan bilgilerini ve görsellerini güncelleyin.':'Portföyünüze yeni bir ilan ekleyin.';
+  const confirmImageDelete=()=>window.confirm('Fotoğrafı silmek istediğinize emin misiniz?');
   return frame(<>
-    <div className="mb-5">
-      <Link href={individual&&edit?'/hesabim/ilanlar':individual?'/ilanlar':'/panel/ilanlar'} className="mb-3 inline-flex items-center gap-2 text-sm text-muted-foreground"><ArrowLeft size={15}/> {individual&&edit?'İlanlarıma dön':'İlanlara dön'}</Link>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="font-display text-2xl font-extrabold">{individual&&edit?'İlanı düzenle':individual?'İlan Ver':edit?'İlanı düzenle':'Yeni ilan oluştur'}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">{individual&&edit?'Bilgileri ve fotoğrafları güncelleyin.':individual?'Bilgileri doldurun, fotoğrafları seçin ve ilanı yayınlayın.':'İlanınızı doğru ve eksiksiz bilgilerle yayınlayın.'}</p>
+    {suspended&&<SuspendedAgentNotice/>}
+    <div className="mx-auto mb-5 w-full min-w-0 max-w-4xl">
+      <Link href={individual&&edit?'/hesabim/ilanlar':individual?'/ilanlar':'/panel/ilanlar'} className="mb-3 inline-flex items-center gap-2 text-sm text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"><ArrowLeft size={15}/> {individual&&edit?'İlanlarıma dön':'İlanlara dön'}</Link>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="font-display text-2xl font-extrabold">{heading}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">{intro}</p>
+          {edit&&record.data?.title&&<p className="mt-2 text-sm font-semibold [overflow-wrap:anywhere]" data-testid="text-editor-title">{record.data.title}</p>}
         </div>
         {edit&&record.data&&<span className="rounded-full bg-secondary px-3 py-1 text-xs font-bold text-primary" data-testid="badge-editor-status">Durum: {labels[record.data.status]} · {record.data.currency}</span>}
       </div>
     </div>
 
-    <form className="grid gap-5" aria-busy={busy||imageBusy} data-testid={individual&&edit?'form-user-property-edit':individual?'form-ilan-ver':'form-agent-property'} onSubmit={form.handleSubmit(v=>{ if(individual&&!edit){ void publish(v); return; } setMessage(''); setErrorMsg(''); mutation.mutate(v); })}>
-      <section className="surface p-6" aria-labelledby="section-listing-type">
-        <h3 id="section-listing-type" className="mb-5 font-display text-xl font-bold">1. İlan Türü</h3>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <FilterSelect label="İlan türü *" value={form.watch('listingType')} onChange={v=>form.setValue('listingType',(v||'SALE') as CreatePropertyRequest['listingType'])} options={[['SALE','Satılık'],['RENT','Kiralık']]}/>
-          <FilterSelect label="Emlak tipi *" value={form.watch('propertyType')} onChange={v=>form.setValue('propertyType',(v||'APARTMENT') as CreatePropertyRequest['propertyType'])} options={['APARTMENT','HOUSE','VILLA','LAND','WORKPLACE'].map(k=>[k,labels[k]])}/>
-        </div>
-      </section>
-
-      <section className="surface p-6" aria-labelledby="section-basics">
-        <h3 id="section-basics" className="mb-5 font-display text-xl font-bold">2. Temel Bilgiler</h3>
-        <div className="grid gap-4 sm:grid-cols-2">
-          {field('title','İlan başlığı','text',true,'5–160 karakter')}
+    <form className="mx-auto grid w-full min-w-0 max-w-4xl gap-5" aria-busy={busy||imageBusy} data-testid={individual&&edit?'form-user-property-edit':individual?'form-ilan-ver':'form-agent-property'} onSubmit={form.handleSubmit(v=>{ if(suspended)return; if(individual&&!edit){ void publish(v); return; } setMessage(''); setErrorMsg(''); mutation.mutate(v); })}>
+      <section className="surface min-w-0 p-5 sm:p-6" aria-labelledby="section-listing">
+        <h3 id="section-listing" className="font-display text-xl font-bold">İlan Bilgileri</h3>
+        <p className="mt-1 text-sm text-muted-foreground">Başlık, açıklama, ilan türü ve fiyat.</p>
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          <FilterSelect compact disabled={suspended} label="İlan türü *" value={form.watch('listingType')} onChange={v=>form.setValue('listingType',(v||'SALE') as CreatePropertyRequest['listingType'],{shouldDirty:true})} options={[['SALE','Satılık'],['RENT','Kiralık']]}/>
+          <FilterSelect compact disabled={suspended} label="Emlak tipi *" value={form.watch('propertyType')} onChange={v=>form.setValue('propertyType',(v||'APARTMENT') as CreatePropertyRequest['propertyType'],{shouldDirty:true})} options={['APARTMENT','HOUSE','VILLA','LAND','WORKPLACE'].map(k=>[k,labels[k]])}/>
+          <div className="sm:col-span-2">{field('title','İlan başlığı','text',true,'5–160 karakter')}</div>
           {field('price','Fiyat','text',true,'Örn. 4250000.50',{pattern:{value:/^\d+(\.\d{1,2})?$/,message:'Fiyat geçerli değildir.'},validate:(val)=>Number(val)>0||'Fiyat 0’dan büyük olmalıdır.'})}
-          <label className="grid gap-2 text-sm font-semibold sm:col-span-2">Açıklama *<textarea required aria-invalid={Boolean(form.formState.errors.description)} className={`${inputClass} h-32 py-3`} data-testid="input-prop-description" {...form.register('description',{required:'Açıklama zorunludur.',minLength:{value:20,message:'Açıklama en az 20 karakter olmalıdır.'},maxLength:{value:5000,message:'Açıklama en fazla 5000 karakter olabilir.'}})}/><span className="text-xs text-destructive">{form.formState.errors.description?.message as string}</span></label>
+          <label className="grid min-w-0 gap-1.5 text-sm font-semibold sm:col-span-2">Açıklama *<textarea required disabled={suspended} aria-invalid={Boolean(form.formState.errors.description)} className={`${inputClass} h-32 min-w-0 py-3`} data-testid="input-prop-description" {...form.register('description',{required:'Açıklama zorunludur.',minLength:{value:20,message:'Açıklama en az 20 karakter olmalıdır.'},maxLength:{value:5000,message:'Açıklama en fazla 5000 karakter olabilir.'}})}/><span className="min-h-4 text-xs text-destructive">{form.formState.errors.description?.message as string}</span></label>
         </div>
       </section>
 
-      <section className="surface p-6" aria-labelledby="section-features">
-        <h3 id="section-features" className="mb-5 font-display text-xl font-bold">3. Emlak Özellikleri</h3>
-        <div className="grid gap-4 sm:grid-cols-2">
+      <section className="surface min-w-0 p-5 sm:p-6" aria-labelledby="section-location">
+        <h3 id="section-location" className="font-display text-xl font-bold">Konum Bilgileri</h3>
+        <p className="mt-1 text-sm text-muted-foreground">Şehir, ilçe ve mahalle birlikte seçilir.</p>
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          <FilterSelect compact disabled={suspended} label="Şehir *" value={cityId} onChange={v=>{setCityId(v);setDistrictId('');form.setValue('cityId',v,{shouldDirty:true});form.setValue('districtId','',{shouldDirty:true});form.setValue('neighborhoodId','',{shouldDirty:true});}} options={(cities.data||[]).map(c=>[c.id,c.name])} empty={cities.isLoading?'Şehirler yükleniyor…':'Seçin'}/>
+          <FilterSelect compact label="İlçe *" value={districtId} onChange={v=>{setDistrictId(v);form.setValue('districtId',v,{shouldDirty:true});form.setValue('neighborhoodId','',{shouldDirty:true});}} options={(districts.data||[]).map(c=>[c.id,c.name])} disabled={suspended||!cityId} empty={!cityId?'Önce şehir seçin':districts.isLoading?'İlçeler yükleniyor…':'Seçin'}/>
+          <FilterSelect compact label="Mahalle *" value={form.watch('neighborhoodId')} onChange={v=>form.setValue('neighborhoodId',v,{shouldDirty:true})} options={(neighborhoods.data||[]).map(c=>[c.id,c.name])} disabled={suspended||!districtId} empty={!districtId?'Önce ilçe seçin':neighborhoods.isLoading?'Mahalleler yükleniyor…':'Seçin'}/>
+        </div>
+        <label className="mt-4 grid min-w-0 gap-1.5 text-sm font-semibold">Açık adres *<textarea required disabled={suspended} rows={3} aria-invalid={Boolean(form.formState.errors.address)} placeholder="Mahalle, cadde/sokak, bina no ve diğer adres bilgilerini girin." className={`${inputClass} min-h-24 w-full min-w-0 resize-y py-3`} data-testid="input-prop-address" {...form.register('address',{required:'Açık adres zorunludur.',minLength:{value:5,message:'Açık adres en az 5 karakter olmalıdır.'},maxLength:{value:300,message:'Açık adres en fazla 300 karakter olabilir.'}})}/><span className="min-h-4 text-xs text-destructive">{form.formState.errors.address?.message as string}</span></label>
+      </section>
+
+      <section className="surface min-w-0 p-5 sm:p-6" aria-labelledby="section-features">
+        <h3 id="section-features" className="font-display text-xl font-bold">Emlak Özellikleri</h3>
+        <p className="mt-1 text-sm text-muted-foreground">Alan, oda ve bina bilgileri.</p>
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">
           {field('grossAreaM2','Brüt alan (m²)','text',true,'Örn. 145.00',{pattern:{value:/^\d+(\.\d{1,2})?$/,message:'Brüt alan geçerli değildir.'},validate:(val)=>Number(val)>0||'Brüt alan 0’dan büyük olmalıdır.'})}
           {field('netAreaM2','Net alan (m²)','text',false,'Örn. 125.00',{pattern:{value:/^\d+(\.\d{1,2})?$/,message:'Net alan geçerli değildir.'},validate:(val)=>!val||Number(val)>0||'Net alan 0’dan büyük olmalıdır.'})}
           {!land&&field('rooms','Oda sayısı','number',true,'0–50',{min:{value:0,message:'En az 0 olabilir.'},max:{value:50,message:'En fazla 50 olabilir.'}})}
@@ -1326,76 +1667,75 @@ function PropertyEditor({ edit = false, mode = 'AGENT' }: { edit?: boolean; mode
           {field('buildingAge','Bina yaşı','number',false,'0–300',{min:{value:0,message:'En az 0 olabilir.'},max:{value:300,message:'En fazla 300 olabilir.'}})}
           {!land&&field('floor','Bulunduğu kat','number',false,'-5 ile 200 arası',{min:{value:-5,message:'En az -5 olabilir.'},max:{value:200,message:'En fazla 200 olabilir.'}})}
           {!land&&field('totalFloors','Toplam kat','number',false,'1–200',{min:{value:1,message:'En az 1 olabilir.'},max:{value:200,message:'En fazla 200 olabilir.'}})}
-          {!land&&<FilterSelect label="Isıtma" value={form.watch('heatingType')||''} onChange={v=>form.setValue('heatingType',v?v as NonNullable<CreatePropertyRequest['heatingType']>:undefined)} options={['COMBI','CENTRAL','FLOOR_HEATING','STOVE','NONE','OTHER'].map(k=>[k,labels[k]])} empty="Belirtilmedi"/>}
+          {!land&&<FilterSelect compact disabled={suspended} label="Isıtma" value={form.watch('heatingType')||''} onChange={v=>form.setValue('heatingType',v?v as NonNullable<CreatePropertyRequest['heatingType']>:undefined,{shouldDirty:true})} options={['COMBI','CENTRAL','FLOOR_HEATING','STOVE','NONE','OTHER'].map(k=>[k,labels[k]])} empty="Belirtilmedi"/>}
         </div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          {features.map(([k,l])=><label key={k} className="flex items-center gap-3 rounded-xl border border-border p-3 text-sm font-medium"><input type="checkbox" className="h-4 w-4 accent-primary" data-testid={`checkbox-prop-${k}`} {...form.register(k as keyof CreatePropertyRequest)}/>{l}</label>)}
+          {features.map(([k,l])=><label key={k} className="flex min-w-0 items-center gap-3 rounded-xl border border-border p-3 text-sm font-medium"><input type="checkbox" disabled={suspended} className="h-4 w-4 accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" data-testid={`checkbox-prop-${k}`} {...form.register(k as keyof CreatePropertyRequest)}/>{l}</label>)}
         </div>
-        {land&&<p className="mt-3 text-xs text-muted-foreground">Arsa ilanında oda, kat, ısıtma ve asansör alanları istenmez.</p>}
+        {land&&<p className="mt-3 text-xs text-muted-foreground">Arsa ilanında oda, kat, ısıtma ve asansör alanları istenmez. Kayıtta oda ve salon 0 gönderilir.</p>}
       </section>
 
-      <div className="surface p-6">
-        <h3 id="section-location" className="mb-5 font-display text-xl font-bold">4. Konum</h3>
-        <div className="grid gap-4 sm:grid-cols-3">
-          <FilterSelect label="Şehir *" value={cityId} onChange={v=>{setCityId(v);setDistrictId('');form.setValue('cityId',v);form.setValue('districtId','');form.setValue('neighborhoodId','');}} options={(cities.data||[]).map(c=>[c.id,c.name])}/>
-          <FilterSelect label="İlçe *" value={districtId} onChange={v=>{setDistrictId(v);form.setValue('districtId',v);form.setValue('neighborhoodId','');}} options={(districts.data||[]).map(c=>[c.id,c.name])} disabled={!cityId}/>
-          <FilterSelect label="Mahalle *" value={form.watch('neighborhoodId')} onChange={v=>form.setValue('neighborhoodId',v)} options={(neighborhoods.data||[]).map(c=>[c.id,c.name])} disabled={!districtId}/>
-        </div>
-        <label className="mt-4 grid gap-1.5 text-sm font-semibold">Açık adres *<textarea required rows={3} aria-invalid={Boolean(form.formState.errors.address)} placeholder="Mahalle, cadde/sokak, bina no ve diğer adres bilgilerini girin." className={`${inputClass} min-h-24 w-full resize-y py-3`} data-testid="input-prop-address" {...form.register('address',{required:'Açık adres zorunludur.',minLength:{value:5,message:'Açık adres en az 5 karakter olmalıdır.'},maxLength:{value:300,message:'Açık adres en fazla 300 karakter olabilir.'}})}/><span className="text-xs text-destructive">{form.formState.errors.address?.message as string}</span></label>
-        <p className="mt-3 text-xs text-muted-foreground">Şehir, ilçe ve mahalle seçimleri gerçek konum kayıtlarından (UUID) alınır.</p>
-      </div>
-
-      <div className="surface p-6" data-testid="section-property-images">
-        <h3 id="section-images" className="font-display text-xl font-bold">5. Görseller</h3>
+      <section className="surface min-w-0 p-5 sm:p-6" data-testid="section-property-images" aria-labelledby="section-images">
+        <h3 id="section-images" className="font-display text-xl font-bold">Fotoğraflar</h3>
         <p className="mt-1 text-sm text-muted-foreground">JPEG, PNG veya WebP · en fazla 10 MB / fotoğraf · en çok 20 fotoğraf</p>
         {individual&&!edit?<>
-          <label className={`mt-4 flex cursor-pointer items-center justify-center rounded-xl border border-dashed border-border p-8 text-center text-sm font-semibold hover:border-primary ${busy?'pointer-events-none opacity-60':''}`}>
-            {busy?'Fotoğraf işlemi yapılıyor…':'Fotoğraf seçin'}
+          <label className={`mt-4 flex min-h-11 cursor-pointer items-center justify-center rounded-xl border border-dashed border-border p-6 text-center text-sm font-semibold hover:border-primary focus-within:ring-2 focus-within:ring-primary ${busy?'pointer-events-none opacity-60':''}`}>
+            {busy?'Fotoğraf işlemi yapılıyor…':'+ Fotoğraf Yükle'}
             <input className="sr-only" type="file" disabled={busy} data-testid="input-user-property-images" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" multiple onChange={e=>{addLocalFiles(e.target.files);e.currentTarget.value='';}}/>
           </label>
-          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {drafts.map((image,i)=><div key={image.key} className="relative overflow-hidden rounded-xl border border-border" data-testid={`card-draft-image-${image.key}`}>
-              <img src={image.previewUrl} alt="Seçilen ilan fotoğrafı" className="aspect-square w-full object-cover"/>
-              <div className="flex items-center justify-between gap-2 p-2">
-                <button type="button" disabled={busy||image.isCover} data-testid={`button-cover-draft-${image.key}`} onClick={()=>coverDraft(image.key)} className="text-xs font-semibold text-primary disabled:opacity-60">{image.isCover?'Kapak':'Kapak yap'}</button>
-                <button type="button" disabled={busy} data-testid={`button-delete-draft-${image.key}`} onClick={()=>void removeDraft(image.key)} className="text-xs text-destructive disabled:opacity-60">Sil</button>
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {drafts.map((image,i)=><div key={image.key} className="min-w-0 overflow-hidden rounded-xl border border-border" data-testid={`card-draft-image-${image.key}`}>
+              <div className="relative">
+                <img src={image.previewUrl} alt="Seçilen ilan fotoğrafı" className="aspect-[4/3] w-full object-cover"/>
+                {image.isCover&&<span className="absolute left-2 top-2 rounded-full bg-primary px-2.5 py-1 text-[11px] font-semibold text-primary-foreground">Kapak Görseli</span>}
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2 p-2">
+                <button type="button" disabled={busy||image.isCover} data-testid={`button-cover-draft-${image.key}`} onClick={()=>coverDraft(image.key)} className="text-xs font-semibold text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60">{image.isCover?'Kapak':'Kapak yap'}</button>
+                <button type="button" disabled={busy} data-testid={`button-delete-draft-${image.key}`} onClick={()=>{if(confirmImageDelete())void removeDraft(image.key);}} className="text-xs text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60">Sil</button>
               </div>
               <div className="flex items-center justify-between border-t border-border px-2 py-1.5 text-xs">
-                <button type="button" disabled={busy||i===0} onClick={()=>moveDraft(i,i-1)} aria-label="Öne taşı" className="inline-flex items-center gap-1 font-medium text-muted-foreground hover:text-foreground disabled:opacity-35"><ChevronLeft size={14}/>Öne taşı</button>
-                <button type="button" disabled={busy||i===drafts.length-1} onClick={()=>moveDraft(i,i+1)} aria-label="Geri taşı" className="inline-flex items-center gap-1 font-medium text-muted-foreground hover:text-foreground disabled:opacity-35">Geri taşı<ChevronRight size={14}/></button>
+                <button type="button" disabled={busy||i===0} onClick={()=>moveDraft(i,i-1)} aria-label="Öne taşı" className="inline-flex items-center gap-1 font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-35"><ChevronLeft size={14}/>Öne taşı</button>
+                <button type="button" disabled={busy||i===drafts.length-1} onClick={()=>moveDraft(i,i+1)} aria-label="Geri taşı" className="inline-flex items-center gap-1 font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-35">Geri taşı<ChevronRight size={14}/></button>
               </div>
             </div>)}
           </div>
           {!drafts.length&&<p className="mt-3 text-xs text-muted-foreground">Fotoğraf seçmek zorunlu değil. Seçilenler ilan yayınlanırken yüklenir.</p>}
         </>:edit?<>
-          <label className={`mt-4 flex cursor-pointer items-center justify-center rounded-xl border border-dashed border-border p-8 text-center text-sm font-semibold hover:border-primary ${imageBusy?'pointer-events-none opacity-60':''}`}>
-            {imageBusy?'Fotoğraf işlemi yapılıyor…':'Fotoğraf seçin'}
-            <input className="sr-only" type="file" disabled={imageBusy} data-testid="input-property-images" accept="image/jpeg,image/png,image/webp" multiple onChange={e=>{void addFiles(e.target.files);e.currentTarget.value='';}}/>
+          <label className={`mt-4 flex min-h-11 cursor-pointer items-center justify-center rounded-xl border border-dashed border-border p-6 text-center text-sm font-semibold hover:border-primary focus-within:ring-2 focus-within:ring-primary ${imageBusy||suspended?'pointer-events-none opacity-60':''}`}>
+            {imageBusy?'Fotoğraf işlemi yapılıyor…':'+ Fotoğraf Yükle'}
+            <input className="sr-only" type="file" disabled={imageBusy||suspended} data-testid="input-property-images" accept="image/jpeg,image/png,image/webp" multiple onChange={e=>{void addFiles(e.target.files);e.currentTarget.value='';}}/>
           </label>
-          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {uploads.map((image,i)=><div key={image.id} className="relative overflow-hidden rounded-xl border border-border" data-testid={`card-property-image-${image.id}`}>
-              <img src={fileUrl(image.url)||''} alt="Yüklenen ilan fotoğrafı" className="aspect-square w-full object-cover"/>
-              <div className="flex items-center justify-between gap-2 p-2">
-                <button type="button" disabled={imageBusy||image.isCover} data-testid={`button-cover-image-${image.id}`} onClick={()=>void chooseCover(image.id)} className="text-xs font-semibold text-primary disabled:opacity-60">{image.isCover?'Kapak':'Kapak yap'}</button>
-                <button type="button" disabled={imageBusy} data-testid={`button-delete-image-${image.id}`} onClick={()=>void deleteImage(image.id)} className="text-xs text-destructive disabled:opacity-60">Sil</button>
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {uploads.map((image,i)=><div key={image.id} className="min-w-0 overflow-hidden rounded-xl border border-border" data-testid={`card-property-image-${image.id}`}>
+              <div className="relative">
+                <EditorImage url={image.url} individual={individual}/>
+                {image.isCover&&<span className="absolute left-2 top-2 rounded-full bg-primary px-2.5 py-1 text-[11px] font-semibold text-primary-foreground">Kapak Görseli</span>}
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2 p-2">
+                <button type="button" disabled={imageBusy||suspended||image.isCover} data-testid={`button-cover-image-${image.id}`} onClick={()=>void chooseCover(image.id)} className="text-xs font-semibold text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60">{image.isCover?'Kapak':'Kapak yap'}</button>
+                <button type="button" disabled={imageBusy||suspended} data-testid={`button-delete-image-${image.id}`} onClick={()=>{if(confirmImageDelete())void deleteImage(image.id);}} className="text-xs text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60">Sil</button>
               </div>
               <div className="flex items-center justify-between border-t border-border px-2 py-1.5 text-xs">
-                <button type="button" disabled={imageBusy||i===0} data-testid={`button-move-prev-${image.id}`} onClick={()=>void reorder(i,i-1)} aria-label="Öne taşı" className="inline-flex items-center gap-1 font-medium text-muted-foreground hover:text-foreground disabled:opacity-35"><ChevronLeft size={14}/>Öne taşı</button>
-                <button type="button" disabled={imageBusy||i===uploads.length-1} data-testid={`button-move-next-${image.id}`} onClick={()=>void reorder(i,i+1)} aria-label="Geri taşı" className="inline-flex items-center gap-1 font-medium text-muted-foreground hover:text-foreground disabled:opacity-35">Geri taşı<ChevronRight size={14}/></button>
+                <button type="button" disabled={imageBusy||suspended||i===0} data-testid={`button-move-prev-${image.id}`} onClick={()=>void reorder(i,i-1)} aria-label="Öne taşı" className="inline-flex items-center gap-1 font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-35"><ChevronLeft size={14}/>Öne taşı</button>
+                <button type="button" disabled={imageBusy||suspended||i===uploads.length-1} data-testid={`button-move-next-${image.id}`} onClick={()=>void reorder(i,i+1)} aria-label="Geri taşı" className="inline-flex items-center gap-1 font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-35">Geri taşı<ChevronRight size={14}/></button>
               </div>
             </div>)}
           </div>
           {!uploads.length&&<p className="mt-3 text-xs text-muted-foreground">Bu ilana henüz fotoğraf eklenmemiş.</p>}
-        </>:<p className="mt-3 rounded-xl bg-muted p-4 text-sm text-muted-foreground">İlanı ilk kez kaydettikten sonra fotoğraflarınızı ekleyebilirsiniz.</p>}
-      </div>
+        </>:<p className="mt-4 rounded-xl bg-muted p-4 text-sm text-muted-foreground">İlanı ilk kez kaydettikten sonra fotoğraflarınızı ekleyebilirsiniz.</p>}
+      </section>
 
-      {message&&<p role="status" className="text-sm text-primary" data-testid="text-property-feedback">{message}</p>}
-      {errorMsg&&<p role="alert" className="text-sm text-destructive" data-testid="text-property-error">{errorMsg}</p>}
-      <div className="flex flex-wrap justify-end gap-3">
-        <Link href={individual?'/ilanlar':'/panel/ilanlar'} className="rounded-xl border border-border px-5 py-3 font-semibold">Vazgeç</Link>
-        {partialId&&<Link href={`/ilan/${partialId}`} className="rounded-xl border border-border px-5 py-3 font-semibold" data-testid="link-view-created-property">İlanı görüntüle</Link>}
-        <button type="submit" className="rounded-xl bg-primary px-6 py-3 font-bold text-white disabled:opacity-60" disabled={busy||imageBusy} data-testid="button-submit-property">{individual&&!edit?(publishing?'İlan yayınlanıyor...':partialId?'Tekrar dene':'İlanı Yayınla'):mutation.isPending?'Kaydediliyor…':edit?(individual?'Değişiklikleri Kaydet':'İlanı kaydet'):'İlanı oluştur'}</button>
-      </div>
+      <section className="surface min-w-0 p-5 sm:p-6" aria-labelledby="section-publish">
+        <h3 id="section-publish" className="font-display text-xl font-bold">{edit?'Kaydetme':'Yayın'}</h3>
+        <p className="mt-1 text-sm text-muted-foreground">{edit?'Değişiklikler bu ilana yazılır.':individual?'İlan ve seçilen fotoğraflar birlikte yayınlanır.':'Kayıttan sonra fotoğrafları ekleyebilirsiniz.'}</p>
+        {message&&<p role="status" className="mt-4 text-sm text-primary" data-testid="text-property-feedback">{message}</p>}
+        {errorMsg&&<p role="alert" className="mt-4 text-sm text-destructive" data-testid="text-property-error">{errorMsg}</p>}
+        <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:justify-end">
+          <Link href={individual?'/ilanlar':'/panel/ilanlar'} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-border px-5 py-3 text-center font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">Vazgeç</Link>
+          {partialId&&<Link href={`/ilan/${partialId}`} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-border px-5 py-3 text-center font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" data-testid="link-view-created-property">İlanı görüntüle</Link>}
+          <button type="submit" className="inline-flex min-h-11 items-center justify-center rounded-xl bg-primary px-6 py-3 font-bold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:opacity-60" disabled={busy||imageBusy||suspended} data-testid="button-submit-property">{individual&&!edit?(publishing?'İlan yayınlanıyor...':partialId?'Tekrar dene':'İlanı Yayınla'):mutation.isPending?'Kaydediliyor…':edit?'Değişiklikleri Kaydet':'İlanı oluştur'}</button>
+        </div>
+      </section>
     </form>
   </>);
 }
@@ -1412,27 +1752,39 @@ function UserListingPage() {
   }
   return <PropertyEditor mode="INDIVIDUAL"/>;
 }
+function ProfileLogo({ url, alt, className, testId }: { url?: string | null; alt: string; className: string; testId?: string }) {
+  const image = useOwnedImage(url);
+  if (image.loading) return <div className={`bg-muted ${className}`} aria-busy="true" aria-label="Logo yükleniyor"/>;
+  if (image.src && !image.failed) return <img src={image.src} alt={alt} onError={image.fail} className={className} data-testid={testId}/>;
+  return <div className={`grid place-items-center bg-muted text-primary ${className}`} role="img" aria-label="Logo yok"><Building2 size={28}/></div>;
+}
 function AgentProfilePage() {
   const isMock=DATA_MODE==='mock';
   const qc=useQueryClient(); const {toast}=useToast();
   const q=useMyAgentProfile(!isMock);
   const form=useForm<UpdateAgentProfileRequest>({defaultValues:{companyName:'',phone:'',email:'',address:'',description:''}});
-  const [notice,setNotice]=useState(''); const [errorMsg,setErrorMsg]=useState('');
+  const [notice,setNotice]=useState(''); const [errorMsg,setErrorMsg]=useState(''); const [feedbackFor,setFeedbackFor]=useState<'logo'|'profile'|null>(null);
   useEffect(()=>{
-    if(q.data){
-      form.reset({
-        companyName:q.data.companyName,
-        phone:q.data.phone,
-        email:q.data.email,
-        address:q.data.address,
-        description:q.data.description||'',
-      });
-    }
+    if(!q.data||form.formState.isDirty)return;
+    form.reset({
+      companyName:q.data.companyName,
+      phone:q.data.phone,
+      email:q.data.email,
+      address:q.data.address,
+      description:q.data.description||'',
+    });
   },[q.data,form]);
 
   const update=useMutation({
     mutationFn:(v:UpdateAgentProfileRequest)=>agentsApi.updateMyAgentProfile(v),
     onSuccess:(saved)=>{
+      form.reset({
+        companyName:saved.companyName,
+        phone:saved.phone,
+        email:saved.email,
+        address:saved.address,
+        description:saved.description||'',
+      });
       qc.setQueryData(keys.agentMe,saved);
       void qc.invalidateQueries({queryKey:keys.agentMe});
       if(saved.slug)void qc.invalidateQueries({queryKey:keys.agent(saved.slug)});
@@ -1463,6 +1815,7 @@ function AgentProfilePage() {
 
   const onLogoSelect=(file:File|undefined)=>{
     if(!file)return;
+    setFeedbackFor('logo');
     setNotice('');
     setErrorMsg('');
     const allowedMimes=['image/jpeg','image/png','image/webp'];
@@ -1479,37 +1832,86 @@ function AgentProfilePage() {
     logo.mutate(file);
   };
 
+  useUnsavedChanges(!isMock && q.data?.isActive !== false && form.formState.isDirty);
   if(isMock)return <PanelLayout><EmptyState title="Bu özellik gerçek API bağlantısı gerektirir" text="Emlakçı profilinizi yönetmek için gerçek API modunda giriş yapın." href="/ilanlar" action="İlanları keşfet"/></PanelLayout>;
+  const suspended=q.data?.isActive===false;
 
+  const readOnly=(label:string,value:string)=><div className="min-w-0"><p className="text-sm font-semibold">{label}</p><p className="mt-1.5 min-h-11 break-words rounded-xl border border-border bg-muted px-3.5 py-3 text-sm [overflow-wrap:anywhere]">{value}</p></div>;
+  const feedback=(where:'logo'|'profile')=>feedbackFor===where?<>
+    {notice&&<p role="status" className="mt-4 break-words text-sm text-primary [overflow-wrap:anywhere]" data-testid="text-agent-profile-notice">{notice}</p>}
+    {errorMsg&&<p role="alert" className="mt-4 break-words text-sm text-destructive [overflow-wrap:anywhere]" data-testid="text-agent-profile-error">{errorMsg}</p>}
+  </>:null;
   return <PanelLayout>
-    <SectionTitle eyebrow="Profil yönetimi" title="Emlakçı profilim" description="Public profilde görünen şirket ve iletişim bilgileri."/>
-    {q.isLoading?<div className="surface p-6"><div className="skeleton h-48"/></div>:q.error?<ErrorState retry={()=>q.refetch()} message={showError(q.error)}/>:q.data&&<div className="grid gap-5">
-      <div className="surface flex flex-wrap items-center gap-5 p-5">
-        <div className="grid h-20 w-20 place-items-center overflow-hidden rounded-2xl bg-muted text-primary">
-          {q.data.logoUrl&&fileUrl(q.data.logoUrl)?<img src={fileUrl(q.data.logoUrl)!} alt="Şirket logosu" className="h-full w-full object-cover" data-testid="img-agent-logo"/>:<Building2 size={30}/>}
-        </div>
-        <div className="flex-1">
-          <p className="font-bold">Şirket logosu</p>
-          <p className="mt-1 text-xs text-muted-foreground">JPEG, PNG veya WebP · en fazla 5 MB</p>
-        </div>
-        <label className={`cursor-pointer rounded-xl border border-border px-4 py-2.5 text-sm font-semibold ${logo.isPending?'pointer-events-none opacity-60':''}`}>
-          {logo.isPending?'Yükleniyor…':'Logo yükle'}
-          <input className="sr-only" type="file" disabled={logo.isPending} data-testid="input-agent-logo" accept="image/jpeg,image/png,image/webp" onChange={e=>{onLogoSelect(e.target.files?.[0]);e.currentTarget.value='';}}/>
-        </label>
+    {suspended&&<SuspendedAgentNotice/>}
+    {q.isLoading?<div className="surface p-6"><div className="skeleton h-48"/></div>:q.error?<ErrorState retry={()=>q.refetch()} message={showError(q.error)}/>:q.data&&<div className="mx-auto grid w-full min-w-0 max-w-4xl gap-5">
+      <div className="min-w-0">
+        <h2 className="font-display text-2xl font-extrabold">Emlakçı Profilim</h2>
+        <p className="mt-1 text-sm text-muted-foreground">Müşterilerinize gösterilen firma bilgilerinizi yönetin.</p>
       </div>
-
-      <form className="surface grid gap-4 p-6 sm:grid-cols-2" onSubmit={form.handleSubmit(v=>{setNotice('');setErrorMsg('');update.mutate(v);})}>
-        <label className="grid gap-1.5 text-sm font-semibold">Firma adı *<input className={inputClass} data-testid="input-agent-companyName" {...form.register('companyName',{required:'Firma adı zorunludur.',minLength:{value:2,message:'Firma adı en az 2 karakter olmalıdır.'},maxLength:{value:120,message:'Firma adı en fazla 120 karakter olabilir.'}})}/><span className="text-xs text-destructive">{form.formState.errors.companyName?.message}</span></label>
-        <label className="grid gap-1.5 text-sm font-semibold">Telefon *<input className={inputClass} type="tel" data-testid="input-agent-phone" {...form.register('phone',{required:'Telefon zorunludur.',minLength:{value:7,message:'Telefon en az 7 karakter olmalıdır.'},maxLength:{value:32,message:'Telefon en fazla 32 karakter olabilir.'}})}/><span className="text-xs text-destructive">{form.formState.errors.phone?.message}</span></label>
-        <label className="grid gap-1.5 text-sm font-semibold">E-posta *<input className={inputClass} type="email" data-testid="input-agent-email" {...form.register('email',{required:'E-posta zorunludur.',maxLength:{value:254,message:'E-posta en fazla 254 karakter olabilir.'}})}/><span className="text-xs text-destructive">{form.formState.errors.email?.message}</span></label>
-        <label className="grid gap-1.5 text-sm font-semibold">Açık adres *<input className={inputClass} data-testid="input-agent-address" {...form.register('address',{required:'Açık adres zorunludur.',minLength:{value:5,message:'Açık adres en az 5 karakter olmalıdır.'},maxLength:{value:300,message:'Açık adres en fazla 300 karakter olabilir.'}})}/><span className="text-xs text-destructive">{form.formState.errors.address?.message}</span></label>
-        <label className="grid gap-1.5 text-sm font-semibold sm:col-span-2">Açıklama<textarea className={`${inputClass} h-24 py-3`} data-testid="input-agent-description" {...form.register('description',{maxLength:{value:2000,message:'Açıklama en fazla 2000 karakter olabilir.'}})}/><span className="text-xs text-destructive">{form.formState.errors.description?.message}</span></label>
-        <div className="rounded-xl bg-muted p-3 text-xs text-muted-foreground sm:col-span-2">
-          <b>Değiştirilemeyen bilgiler:</b> Profil adresi: <Link href={`/emlakci/${q.data.slug}`} className="font-semibold text-primary underline">/emlakci/{q.data.slug}</Link> · {q.data.city}, {q.data.district} · Vergi numarası: {q.data.taxNumber} · Profil durumu: {q.data.isActive?'Aktif':'Pasif'}
+      <section className="surface min-w-0 p-5 sm:p-6" aria-labelledby="agent-profile-overview">
+        <h3 id="agent-profile-overview" className="font-display text-xl font-bold">Profil Özeti</h3>
+        <div className="mt-4 flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-4">
+            <ProfileLogo url={q.data.logoUrl} alt={`${q.data.companyName} logosu`} className="h-16 w-16 shrink-0 overflow-hidden rounded-2xl object-cover"/>
+            <div className="min-w-0">
+              <p className="break-words font-bold [overflow-wrap:anywhere]">{q.data.companyName}</p>
+              <p className={`mt-1 inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${q.data.isActive?'bg-secondary text-primary':'bg-amber-50 text-amber-950'}`} data-testid="badge-agent-profile-status">{q.data.isActive?'Aktif':'Askıya Alındı'}</p>
+              <p className="mt-2 break-words text-sm text-muted-foreground [overflow-wrap:anywhere]">{q.data.email}</p>
+              <p className="break-words text-sm text-muted-foreground [overflow-wrap:anywhere]">{q.data.phone}</p>
+            </div>
+          </div>
+          {q.data.isActive&&<Link href={`/emlakci/${q.data.slug}`} className="inline-flex min-h-11 w-full shrink-0 items-center justify-center rounded-xl border border-border px-4 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:w-auto" data-testid="link-agent-public-profile">Public Profili Görüntüle</Link>}
         </div>
-        {notice&&<p role="status" className="text-sm text-primary sm:col-span-2" data-testid="text-agent-profile-notice">{notice}</p>}
-        {errorMsg&&<p role="alert" className="text-sm text-destructive sm:col-span-2" data-testid="text-agent-profile-error">{errorMsg}</p>}
-        <button className="h-11 rounded-xl bg-primary font-bold text-white disabled:opacity-60 sm:col-span-2" disabled={update.isPending} data-testid="button-save-agent-profile">{update.isPending?'Kaydediliyor…':'Profili kaydet'}</button>
+      </section>
+      <form className="grid min-w-0 gap-5" aria-busy={update.isPending} onSubmit={form.handleSubmit(v=>{if(suspended||update.isPending)return;setFeedbackFor('profile');setNotice('');setErrorMsg('');update.mutate(v);})}>
+        <div className="grid min-w-0 gap-5 lg:grid-cols-2 lg:items-start">
+          <section className="surface min-w-0 p-5 sm:p-6" aria-labelledby="agent-logo-heading">
+            <h3 id="agent-logo-heading" className="font-display text-xl font-bold">Şirket Logosu</h3>
+            <p className="mt-1 text-sm text-muted-foreground">Firmanızı temsil eden logoyu yükleyin.</p>
+            <div className="mt-4 flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center">
+              <ProfileLogo url={q.data.logoUrl} alt="Şirket logosu" className="h-24 w-24 shrink-0 overflow-hidden rounded-2xl object-cover" testId="img-agent-logo"/>
+              <div className="min-w-0">
+                <p className="text-sm text-muted-foreground">JPEG, PNG veya WebP · en fazla 5 MB</p>
+                <label className={`mt-3 inline-flex min-h-11 w-full cursor-pointer items-center justify-center rounded-xl border border-border px-4 text-sm font-semibold focus-within:ring-2 focus-within:ring-primary sm:w-auto ${logo.isPending||suspended?'pointer-events-none opacity-60':''}`}>
+                  {logo.isPending?'Yükleniyor…':q.data.logoUrl?'Logoyu Değiştir':'Logo Yükle'}
+                  <input className="sr-only" type="file" disabled={logo.isPending||suspended} aria-label="Logo yükle" data-testid="input-agent-logo" accept="image/jpeg,image/png,image/webp" onChange={e=>{onLogoSelect(e.target.files?.[0]);e.currentTarget.value='';}}/>
+                </label>
+              </div>
+            </div>
+            {feedback('logo')}
+          </section>
+          <section className="surface min-w-0 p-5 sm:p-6" aria-labelledby="agent-company-heading">
+            <h3 id="agent-company-heading" className="font-display text-xl font-bold">Firma Bilgileri</h3>
+            <div className="mt-5 grid gap-4">
+              <label className="grid min-w-0 gap-1.5 text-sm font-semibold">Firma adı *<input className={`${inputClass} min-w-0`} data-testid="input-agent-companyName" {...form.register('companyName',{required:'Firma adı zorunludur.',minLength:{value:2,message:'Firma adı en az 2 karakter olmalıdır.'},maxLength:{value:120,message:'Firma adı en fazla 120 karakter olabilir.'}})} disabled={suspended}/><span className="min-h-4 text-xs text-destructive">{form.formState.errors.companyName?.message}</span></label>
+              <label className="grid min-w-0 gap-1.5 text-sm font-semibold"><span>Açıklama</span><span className="font-normal text-muted-foreground">En fazla 2000 karakter.</span><textarea className={`${inputClass} h-32 min-w-0 py-3`} data-testid="input-agent-description" {...form.register('description',{maxLength:{value:2000,message:'Açıklama en fazla 2000 karakter olabilir.'}})} disabled={suspended}/><span className="min-h-4 text-xs text-destructive">{form.formState.errors.description?.message}</span></label>
+            </div>
+          </section>
+        </div>
+        <section className="surface min-w-0 p-5 sm:p-6" aria-labelledby="agent-contact-heading">
+          <h3 id="agent-contact-heading" className="font-display text-xl font-bold">İletişim Bilgileri</h3>
+          <p className="mt-1 text-sm text-muted-foreground">Public profilde görünen telefon ve e-posta.</p>
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            <label className="grid min-w-0 gap-1.5 text-sm font-semibold">Telefon *<input className={`${inputClass} min-w-0`} type="tel" data-testid="input-agent-phone" {...form.register('phone',{required:'Telefon zorunludur.',minLength:{value:7,message:'Telefon en az 7 karakter olmalıdır.'},maxLength:{value:32,message:'Telefon en fazla 32 karakter olabilir.'}})} disabled={suspended}/><span className="min-h-4 text-xs text-destructive">{form.formState.errors.phone?.message}</span></label>
+            <label className="grid min-w-0 gap-1.5 text-sm font-semibold">E-posta *<input className={`${inputClass} min-w-0`} type="email" data-testid="input-agent-email" {...form.register('email',{required:'E-posta zorunludur.',maxLength:{value:254,message:'E-posta en fazla 254 karakter olabilir.'}})} disabled={suspended}/><span className="min-h-4 text-xs text-destructive">{form.formState.errors.email?.message}</span></label>
+          </div>
+        </section>
+        <section className="surface min-w-0 p-5 sm:p-6" aria-labelledby="agent-address-heading">
+          <h3 id="agent-address-heading" className="font-display text-xl font-bold">Adres Bilgileri</h3>
+          <p className="mt-1 text-sm text-muted-foreground">Şehir, ilçe ve vergi numarası başvuru kaydından gelir.</p>
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            {readOnly('Şehir',q.data.city)}
+            {readOnly('İlçe',q.data.district)}
+            <label className="grid min-w-0 gap-1.5 text-sm font-semibold sm:col-span-2">Açık adres *<input className={`${inputClass} min-w-0`} data-testid="input-agent-address" {...form.register('address',{required:'Açık adres zorunludur.',minLength:{value:5,message:'Açık adres en az 5 karakter olmalıdır.'},maxLength:{value:300,message:'Açık adres en fazla 300 karakter olabilir.'}})} disabled={suspended}/><span className="min-h-4 text-xs text-destructive">{form.formState.errors.address?.message}</span></label>
+            {readOnly('Vergi numarası',q.data.taxNumber)}
+            {readOnly('Profil adresi',`/emlakci/${q.data.slug}`)}
+          </div>
+        </section>
+        <section className="surface min-w-0 p-5 sm:p-6" aria-labelledby="agent-save-heading">
+          <h3 id="agent-save-heading" className="font-display text-xl font-bold">Kaydet</h3>
+          {feedback('profile')}
+          <button type="submit" className="mt-5 inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-primary px-6 font-bold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:opacity-60 sm:w-auto" disabled={update.isPending||suspended} data-testid="button-save-agent-profile">{update.isPending?'Kaydediliyor…':'Değişiklikleri Kaydet'}</button>
+        </section>
       </form>
     </div>}
   </PanelLayout>;
@@ -1561,223 +1963,31 @@ function AdminHome() {
 }
 function AdminUsersPage() {
   const isMock=DATA_MODE==='mock';
-  const [email,setEmail]=useState(''),[role,setRole]=useState(''),[active,setActive]=useState(''),[page,setPage]=useState(1);
-  const data=useAdminUsers({page,limit:20,...(email.trim()?{email:email.trim()}:{}),...(role?{role:role as 'USER'|'AGENT'|'ADMIN'}:{}),...(active?{isActive:active as 'true'|'false'}:{})},!isMock);
   if(isMock)return <AdminLayout><EmptyState title="Bu özellik gerçek API bağlantısı gerektirir" text="Kullanıcıları yönetmek için gerçek API modunda giriş yapın." href="/ilanlar" action="İlanları keşfet"/></AdminLayout>;
-  return <AdminLayout>
-    <SectionTitle eyebrow="Hesaplar" title="Kullanıcılar" description="E-posta, rol ve hesap durumuna göre arayın."/>
-    <div className="surface mb-4 grid gap-3 p-4 sm:grid-cols-3">
-      <input className={inputClass} placeholder="E-posta içinde ara" data-testid="input-admin-users-email" value={email} onChange={e=>{setEmail(e.target.value);setPage(1);}}/>
-      <select className={inputClass} aria-label="Rol filtresi" data-testid="select-admin-users-role" value={role} onChange={e=>{setRole(e.target.value);setPage(1);}}><option value="">Tüm roller</option>{['USER','AGENT','ADMIN'].map(r=><option key={r} value={r}>{labels[r]}</option>)}</select>
-      <select className={inputClass} aria-label="Durum filtresi" data-testid="select-admin-users-active" value={active} onChange={e=>{setActive(e.target.value);setPage(1);}}><option value="">Tüm durumlar</option><option value="true">Aktif</option><option value="false">Pasif</option></select>
-    </div>
-    {data.isLoading?<div className="surface p-6"><div className="skeleton h-48"/></div>:data.error?<ErrorState retry={()=>data.refetch()} message={showError(data.error)}/>:data.data?.items.length?<>
-      <div className="surface overflow-x-auto">
-        <table className="data-table">
-          <thead><tr><th>Kullanıcı</th><th>Telefon</th><th>Rol</th><th>Durum</th><th>Kayıt</th><th></th></tr></thead>
-          <tbody>{data.data.items.map(u=><tr key={u.id} data-testid={`row-admin-user-${u.id}`}><td><b>{[u.firstName,u.lastName].filter(Boolean).join(' ')||'Ad belirtilmemiş'}</b><small>{u.email}</small></td><td>{u.phone||'—'}</td><td>{labels[u.role]}</td><td><StatusPill active={u.isActive}/></td><td>{new Date(u.createdAt).toLocaleDateString('tr-TR')}</td><td><Link className="text-sm font-bold text-primary" href={`/admin/kullanicilar/${u.id}`} data-testid={`link-admin-user-${u.id}`}>Detay</Link></td></tr>)}</tbody>
-        </table>
-      </div>
-      <Pagination page={data.data.page} limit={data.data.limit} total={data.data.total} onChange={setPage}/>
-    </>:<EmptyState title="Kullanıcı bulunamadı" text="Bu filtrelerle eşleşen hesap yok."/>}
-  </AdminLayout>;
+  return <AdminLayout><Suspense fallback={<div className="surface p-6"><div className="skeleton h-48"/></div>}><AdminUsersPanel/></Suspense></AdminLayout>;
 }
 function StatusPill({active}:{active:boolean}) { return <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${active?'bg-emerald-100 text-emerald-800':'bg-rose-100 text-rose-800'}`}>{active?'Aktif':'Pasif'}</span>; }
 function AdminUserDetailPage() {
   const isMock=DATA_MODE==='mock';
-  const [match,params]=useRoute('/admin/kullanicilar/:id'); const id=params?.id||'';
-  const {user:currentAdmin}=useAuth(); const {toast}=useToast();
-  const q=useAdminUser(id,!isMock); const qc=useQueryClient();
-  const [message,setMessage]=useState(''); const [errorMsg,setErrorMsg]=useState('');
-  const status=useMutation({
-    mutationFn:(active:boolean)=>adminUsersApi.updateUserStatus(id,active),
-    onSuccess:()=>{
-      void qc.invalidateQueries({queryKey:keys.adminUser(id)});
-      void qc.invalidateQueries({queryKey:['admin-users']});
-      void qc.invalidateQueries({queryKey:['admin-agents']});
-      void qc.invalidateQueries({queryKey:['admin-audit-logs']});
-      void qc.invalidateQueries({queryKey:['properties']});
-      void qc.invalidateQueries({queryKey:['agent-properties']});
-      setErrorMsg('');
-      setMessage('Hesap durumu güncellendi.');
-      toast({title:'Hesap durumu güncellendi.'});
-    },
-    onError:(err)=>{setMessage('');setErrorMsg(showError(err));},
-  });
+  const [match]=useRoute('/admin/kullanicilar/:id');
   if(!match)return null;
   if(isMock)return <AdminLayout><EmptyState title="Bu özellik gerçek API bağlantısı gerektirir" text="Kullanıcı detayını görüntülemek için gerçek API modunda giriş yapın." href="/ilanlar" action="İlanları keşfet"/></AdminLayout>;
-  const isSelf=Boolean(currentAdmin&&q.data&&currentAdmin.id===q.data.id);
-  const toggleUserStatus=()=>{
-    if(!q.data)return;
-    if(q.data.isActive&&!window.confirm('Bu kullanıcı hesabını pasife almak istediğinize emin misiniz?'))return;
-    setMessage('');setErrorMsg('');
-    status.mutate(!q.data.isActive);
-  };
-  return <AdminLayout>
-    <Link href="/admin/kullanicilar" className="mb-4 inline-flex items-center gap-2 text-sm text-muted-foreground"><ArrowLeft size={15}/> Kullanıcı listesi</Link>
-    {q.isLoading?<div className="surface p-8"><div className="skeleton h-48"/></div>:q.error?<ErrorState retry={()=>q.refetch()} message={showError(q.error)}/>:q.data&&<div className="surface p-7">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h2 className="font-display text-2xl font-extrabold">{[q.data.firstName,q.data.lastName].filter(Boolean).join(' ')||'Ad belirtilmemiş'}</h2>
-          <p className="mt-1 text-muted-foreground">{q.data.email}</p>
-        </div>
-        <button type="button" disabled={status.isPending||(isSelf&&q.data.isActive)} data-testid="button-toggle-user-status" onClick={toggleUserStatus} className="rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">{status.isPending?'Güncelleniyor…':q.data.isActive?'Hesabı pasife al':'Hesabı aktifleştir'}</button>
-      </div>
-      {isSelf&&q.data.isActive&&<p className="mt-3 text-xs text-muted-foreground">Güvenlik kuralı gereği yönetici kendi hesabını pasife alamaz.</p>}
-      <div className="mt-6 grid gap-4 border-t border-border pt-5 sm:grid-cols-2">
-        <Info label="Rol" value={labels[q.data.role]}/>
-        <Info label="Hesap durumu" value={q.data.isActive?'Aktif':'Pasif'}/>
-        <Info label="Telefon" value={q.data.phone||'—'}/>
-        <Info label="Oluşturulma" value={new Date(q.data.createdAt).toLocaleString('tr-TR')}/>
-        <Info label="Güncellenme" value={new Date(q.data.updatedAt).toLocaleString('tr-TR')}/>
-      </div>
-      {q.data.agentProfile&&<div className="mt-6 rounded-xl bg-muted p-4">
-        <h3 className="font-bold">Emlakçı profili</h3>
-        <p className="mt-1">{q.data.agentProfile.companyName} · {q.data.agentProfile.city}, {q.data.agentProfile.district}</p>
-        <p className="mt-1 text-sm text-muted-foreground">Profil durumu: {q.data.agentProfile.isActive?'Aktif':'Pasif'} · <Link href={`/admin/emlakcilar/${q.data.agentProfile.id}`} className="font-semibold text-primary underline">Emlakçı yönetimi</Link> · <Link href={`/emlakci/${q.data.agentProfile.slug}`} className="font-semibold text-primary underline">/emlakci/{q.data.agentProfile.slug}</Link></p>
-      </div>}
-      {message&&<p role="status" className="mt-4 text-sm text-primary" data-testid="text-admin-user-message">{message}</p>}
-      {errorMsg&&<p role="alert" className="mt-3 text-sm text-destructive" data-testid="text-admin-user-error">{errorMsg}</p>}
-    </div>}
-  </AdminLayout>;
+  return <AdminLayout><Suspense fallback={<div className="surface p-6"><div className="skeleton h-48"/></div>}><AdminUserDetailPanel/></Suspense></AdminLayout>;
 }
 function Info({label,value}:{label:string;value:string}) { return <div><small className="text-xs text-muted-foreground">{label}</small><p className="mt-1 font-semibold">{value}</p></div>; }
 
 function AdminApplicationsPage() {
   const isMock=DATA_MODE==='mock';
-  const [status,setStatus]=useState(''),[page,setPage]=useState(1);
-  const data=useAdminApps({page,limit:20,...(status?{status:status as 'PENDING'|'APPROVED'|'REJECTED'}:{})},!isMock);
   if(isMock)return <AdminLayout><EmptyState title="Bu özellik gerçek API bağlantısı gerektirir" text="Emlakçı başvurularını incelemek için gerçek API modunda giriş yapın." href="/ilanlar" action="İlanları keşfet"/></AdminLayout>;
-  return <AdminLayout>
-    <SectionTitle eyebrow="Emlakçı hesabı" title="Başvurular" description="Başvuruları durumuna göre inceleyin."/>
-    <div className="mb-4 flex gap-3">
-      <select className={inputClass+' max-w-xs'} aria-label="Başvuru durumu filtresi" data-testid="select-admin-apps-status" value={status} onChange={e=>{setStatus(e.target.value);setPage(1);}}>
-        <option value="">Tüm başvurular</option>
-        {['PENDING','APPROVED','REJECTED'].map(v=><option key={v} value={v}>{labels[v]}</option>)}
-      </select>
-    </div>
-    {data.isLoading?<div className="surface p-6"><div className="skeleton h-48"/></div>:data.error?<ErrorState retry={()=>data.refetch()} message={showError(data.error)}/>:data.data?.items.length?<>
-      <div className="surface overflow-x-auto">
-        <table className="data-table">
-          <thead><tr><th>Firma</th><th>Başvuran</th><th>Konum</th><th>Durum</th><th>Tarih</th><th></th></tr></thead>
-          <tbody>{data.data.items.map(a=><tr key={a.id} data-testid={`row-admin-app-${a.id}`}><td><b>{a.companyName}</b></td><td>{a.user.email}<small>{labels[a.user.role]} · {a.user.isActive?'Aktif':'Pasif'}</small></td><td>{a.city}, {a.district}</td><td><span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-semibold">{labels[a.status]}</span></td><td>{new Date(a.createdAt).toLocaleDateString('tr-TR')}</td><td><Link href={`/admin/basvurular/${a.id}`} className="text-sm font-bold text-primary" data-testid={`link-admin-app-${a.id}`}>İncele</Link></td></tr>)}</tbody>
-        </table>
-      </div>
-      <Pagination page={data.data.page} limit={data.data.limit} total={data.data.total} onChange={setPage}/>
-    </>:<EmptyState title="Başvuru bulunamadı" text="Bu durumda incelenecek başvuru yok."/>}
-  </AdminLayout>;
+  return <AdminLayout><Suspense fallback={<div className="surface p-6"><div className="skeleton h-48"/></div>}><AdminApplicationsPanel/></Suspense></AdminLayout>;
 }
 function AdminApplicationDetailPage() {
   const isMock=DATA_MODE==='mock';
-  const [match,params]=useRoute('/admin/basvurular/:id'); const id=params?.id||'';
-  const {toast}=useToast();
-  const q=useAdminApplication(id,!isMock);
-  const docs=useAdminApplicationDocuments(id,!isMock);
-  const qc=useQueryClient();
-  const [reason,setReason]=useState(''),[message,setMessage]=useState(''),[errorMsg,setErrorMsg]=useState(''),[downloadingId,setDownloadingId]=useState<string|null>(null);
-
-  const approve=useMutation({
-    mutationFn:()=>adminApplicationsApi.approveApplication(id),
-    onSuccess:()=>{
-      void qc.invalidateQueries({queryKey:keys.adminApplication(id)});
-      void qc.invalidateQueries({queryKey:['admin-agent-applications']});
-      void qc.invalidateQueries({queryKey:['admin-agents']});
-      void qc.invalidateQueries({queryKey:['admin-users']});
-      void qc.invalidateQueries({queryKey:['admin-audit-logs']});
-      setErrorMsg('');
-      setMessage('Başvuru onaylandı. Emlakçı profili oluşturuldu ve kullanıcı rolü AGENT olarak güncellendi.');
-      toast({title:'Başvuru onaylandı.'});
-    },
-    onError:(err)=>{setMessage('');setErrorMsg(showError(err));},
-  });
-
-  const reject=useMutation({
-    mutationFn:()=>adminApplicationsApi.rejectApplication(id,reason.trim()),
-    onSuccess:()=>{
-      void qc.invalidateQueries({queryKey:keys.adminApplication(id)});
-      void qc.invalidateQueries({queryKey:['admin-agent-applications']});
-      void qc.invalidateQueries({queryKey:['admin-audit-logs']});
-      setErrorMsg('');
-      setMessage('Başvuru reddedildi.');
-      toast({title:'Başvuru reddedildi.'});
-    },
-    onError:(err)=>{setMessage('');setErrorMsg(showError(err));},
-  });
-
-  const dl=async(docId:string,originalName:string)=>{
-    setErrorMsg('');
-    setDownloadingId(docId);
-    try{
-      const blob=await adminApplicationsApi.getApplicationDocument(id,docId);
-      const url=URL.createObjectURL(blob);
-      const a=document.createElement('a');
-      a.href=url;
-      a.download=originalName||'basvuru-belgesi';
-      a.click();
-      URL.revokeObjectURL(url);
-    }catch(e){
-      setErrorMsg(showError(e));
-    }finally{
-      setDownloadingId(null);
-    }
-  };
-
+  const [match]=useRoute('/admin/basvurular/:id');
   if(!match)return null;
   if(isMock)return <AdminLayout><EmptyState title="Bu özellik gerçek API bağlantısı gerektirir" text="Başvuru detayını görüntülemek için gerçek API modunda giriş yapın." href="/ilanlar" action="İlanları keşfet"/></AdminLayout>;
-
-  const trimmedReason=reason.trim();
-  const isPending=q.data?.status==='PENDING';
-
-  return <AdminLayout>
-    <Link href="/admin/basvurular" className="mb-4 inline-flex items-center gap-2 text-sm text-muted-foreground"><ArrowLeft size={15}/> Başvurular</Link>
-    {q.isLoading?<div className="surface p-8"><div className="skeleton h-48"/></div>:q.error?<ErrorState retry={()=>q.refetch()} message={showError(q.error)}/>:q.data&&<div className="grid gap-5 lg:grid-cols-[1fr_330px]">
-      <div className="surface p-6">
-        <div className="flex items-start justify-between">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-widest text-primary">Başvuru ayrıntısı</p>
-            <h2 className="mt-1 font-display text-2xl font-extrabold">{q.data.companyName}</h2>
-          </div>
-          <span className="rounded-full bg-secondary px-3 py-1 text-xs font-semibold" data-testid="badge-admin-app-status">{labels[q.data.status]}</span>
-        </div>
-        <div className="mt-6 grid gap-5 border-t border-border pt-5 sm:grid-cols-2">
-          <Info label="Yetkili" value={`${q.data.authorizedFirstName} ${q.data.authorizedLastName}`}/>
-          <Info label="Başvuran hesap" value={`${q.data.user.email} (${labels[q.data.user.role]} · ${q.data.user.isActive?'Aktif':'Pasif'})`}/>
-          <Info label="Telefon" value={q.data.phone}/>
-          <Info label="Firma e-postası" value={q.data.email}/>
-          <Info label="Vergi numarası" value={q.data.taxNumber}/>
-          <Info label="Konum" value={`${q.data.city}, ${q.data.district}`}/>
-          <Info label="Adres" value={q.data.address}/>
-          <Info label="Başvuru tarihi" value={new Date(q.data.createdAt).toLocaleString('tr-TR')}/>
-          {q.data.reviewedAt&&<Info label="İncelenme tarihi" value={new Date(q.data.reviewedAt).toLocaleString('tr-TR')}/>}
-        </div>
-        {q.data.description&&<p className="mt-5 rounded-xl bg-muted p-4 text-sm leading-6">{q.data.description}</p>}
-        {q.data.rejectionReason&&<div className="mt-5 rounded-xl bg-rose-50 p-4 text-sm text-rose-800"><b>Red nedeni:</b> {q.data.rejectionReason}</div>}
-        <div className="mt-6">
-          <h3 className="font-bold">Belgeler</h3>
-          {docs.isLoading?<div className="skeleton mt-3 h-16"/>:docs.error?<p className="mt-2 text-sm text-destructive">{showError(docs.error)}</p>:docs.data?.length?<div className="mt-3 grid gap-2 sm:grid-cols-2">
-            {docs.data.map(doc=><button key={doc.id} type="button" disabled={downloadingId===doc.id} data-testid={`button-admin-download-${doc.documentType}`} onClick={()=>void dl(doc.id,doc.originalName)} className="rounded-xl border border-border p-4 text-left hover:border-primary disabled:opacity-60">
-              <b className="block text-sm">{labels[doc.documentType]||doc.documentType}</b>
-              <small className="mt-1 block text-muted-foreground">{doc.originalName} · {(doc.sizeBytes/1024).toFixed(1)} KB</small>
-              <small className="mt-2 block text-primary">{downloadingId===doc.id?'İndiriliyor…':'Güvenli belgeyi indir'}</small>
-            </button>)}
-          </div>:<p className="mt-2 text-sm text-muted-foreground">Başvuruya belge eklenmemiş.</p>}
-        </div>
-      </div>
-      <aside className="surface h-fit p-5">
-        <h3 className="font-display text-xl font-bold">İnceleme</h3>
-        {isPending?<>
-          <p className="mt-2 text-sm text-muted-foreground">Onay için Vergi Levhası ve Yetki Belgesi dosyalarının ikisi de yüklenmiş olmalıdır.</p>
-          <button type="button" data-testid="button-approve-application" onClick={()=>{setMessage('');setErrorMsg('');approve.mutate();}} disabled={approve.isPending||reject.isPending} className="mt-5 h-11 w-full rounded-xl bg-primary font-bold text-white disabled:opacity-50">{approve.isPending?'Onaylanıyor…':'Başvuruyu onayla'}</button>
-          <label className="mt-5 grid gap-2 text-sm font-semibold">Red nedeni (3–500 karakter)<textarea className={`${inputClass} h-28 py-3`} data-testid="textarea-reject-reason" value={reason} maxLength={500} onChange={e=>setReason(e.target.value)} placeholder="Başvurana iletilecek açıklama"/></label>
-          <button type="button" data-testid="button-reject-application" disabled={trimmedReason.length<3||trimmedReason.length>500||reject.isPending||approve.isPending} onClick={()=>{if(window.confirm('Başvuruyu reddetmek istediğinize emin misiniz?')){setMessage('');setErrorMsg('');reject.mutate();}}} className="mt-3 h-11 w-full rounded-xl border border-destructive/40 font-bold text-destructive disabled:opacity-40">{reject.isPending?'Reddediliyor…':'Başvuruyu reddet'}</button>
-        </>:<p className="mt-2 text-sm text-muted-foreground">Bu başvuru <b>{labels[q.data.status]}</b> durumunda olduğu için yeniden onaylanamaz veya reddedilemez.</p>}
-        {message&&<p role="status" className="mt-3 text-sm text-primary" data-testid="text-admin-app-message">{message}</p>}
-        {errorMsg&&<p role="alert" className="mt-3 text-sm text-destructive" data-testid="text-admin-app-error">{errorMsg}</p>}
-      </aside>
-    </div>}
-  </AdminLayout>;
+  return <AdminLayout><Suspense fallback={<div className="surface p-6"><div className="skeleton h-48"/></div>}><AdminApplicationDetailPanel/></Suspense></AdminLayout>;
 }
-
 function AdminAgentsPage() {
   const isMock=DATA_MODE==='mock';
   const [companyName,setCompanyName]=useState(''),[city,setCity]=useState(''),[district,setDistrict]=useState(''),[active,setActive]=useState(''),[page,setPage]=useState(1);
@@ -1877,6 +2087,11 @@ function AdminAgentDetailPage() {
 }
 function AdminPropertiesPage() {
   const isMock=DATA_MODE==='mock';
+  const search=useSearch();
+  const params=new URLSearchParams(search);
+  const ownerUserId=params.get('ownerUserId')??'';
+  const agentUserId=params.get('agentUserId')??'';
+  const conflictingOwners=Boolean(ownerUserId&&agentUserId);
   const [status,setStatus]=useState(''),[listingType,setListingType]=useState(''),[city,setCity]=useState(''),[deleted,setDeleted]=useState('false'),[page,setPage]=useState(1);
   const data=useAdminProperties({
     page,
@@ -1885,10 +2100,14 @@ function AdminPropertiesPage() {
     ...(listingType?{listingType:listingType as 'SALE'|'RENT'}:{}),
     ...(city.trim()?{city:city.trim()}:{}),
     deleted:deleted as 'true'|'false',
+    ...(!conflictingOwners&&ownerUserId?{ownerUserId}:{}),
+    ...(!conflictingOwners&&agentUserId?{agentUserId}:{}),
   },!isMock);
   if(isMock)return <AdminLayout><EmptyState title="Bu özellik gerçek API bağlantısı gerektirir" text="İlan moderasyonunu kullanmak için gerçek API modunda giriş yapın." href="/ilanlar" action="İlanları keşfet"/></AdminLayout>;
   return <AdminLayout>
     <SectionTitle eyebrow="İçerik denetimi" title="İlanlar" description="İlan durumlarını ve emlakçı kayıtlarını gözden geçirin."/>
+    {conflictingOwners&&<p role="alert" className="mb-3 text-sm text-destructive">Bireysel ve emlakçı sahiplik filtreleri birlikte gönderilmedi.</p>}
+    {(ownerUserId||agentUserId)&&!conflictingOwners&&<p className="mb-3 text-sm text-muted-foreground">{ownerUserId?'Bireysel ilan filtresi açık.':'Emlakçı ilan filtresi açık.'} <Link href="/admin/ilanlar" className="font-semibold text-primary">Filtreyi kaldır</Link></p>}
     <div className="surface mb-4 grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4">
       <select className={inputClass} aria-label="Durum filtresi" data-testid="select-admin-props-status" value={status} onChange={e=>{setStatus(e.target.value);setPage(1);}}>
         <option value="">Tüm durumlar</option>
@@ -2024,7 +2243,15 @@ function AdminPropertyDetailPage() {
 }
 function AdminAuditPage() {
   const isMock=DATA_MODE==='mock';
+  const search=useSearch();
   const [entityType,setEntityType]=useState(''),[entityId,setEntityId]=useState(''),[page,setPage]=useState(1);
+  useEffect(()=>{
+    const params=new URLSearchParams(search);
+    const nextType=params.get('entityType');
+    const nextId=params.get('entityId');
+    if(nextType)setEntityType(nextType);
+    if(nextId)setEntityId(nextId);
+  },[search]);
   const validUuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(entityId.trim());
   const q=useAdminAudit({
     page,
@@ -2250,6 +2477,7 @@ function LegacyAccountRedirect({ kind }: { kind: 'favorites' | 'profile' }) {
     if (user.role === 'USER') go(target, { replace: true });
   }, [isLoading, isAuthenticated, user, go, target]);
   if (isLoading || !isAuthenticated || !user || user.role === 'USER') return null;
+  if (kind === 'favorites' && user.role === 'AGENT') return <PanelLayout><FavoritesContent/></PanelLayout>;
   return kind === 'favorites'
     ? <PublicLayout><div className="mx-auto max-w-[1440px] px-5 py-12 lg:px-10"><FavoritesContent/></div></PublicLayout>
     : <PublicLayout><div className="mx-auto max-w-4xl px-5 py-12"><ProfileContent/></div></PublicLayout>;
@@ -2262,5 +2490,131 @@ function Routed() { const [location]=useLocation(); const search=useSearch(); re
   <Route path="/admin">{()=> <RequireRole roles={['ADMIN']}><AdminHome/></RequireRole>}</Route><Route path="/admin/kullanicilar">{()=> <RequireRole roles={['ADMIN']}><AdminUsersPage/></RequireRole>}</Route><Route path="/admin/kullanicilar/:id">{()=> <RequireRole roles={['ADMIN']}><AdminUserDetailPage/></RequireRole>}</Route><Route path="/admin/basvurular">{()=> <RequireRole roles={['ADMIN']}><AdminApplicationsPage/></RequireRole>}</Route><Route path="/admin/basvurular/:id">{()=> <RequireRole roles={['ADMIN']}><AdminApplicationDetailPage/></RequireRole>}</Route><Route path="/admin/emlakcilar">{()=> <RequireRole roles={['ADMIN']}><AdminAgentsPage/></RequireRole>}</Route><Route path="/admin/emlakcilar/:id">{()=> <RequireRole roles={['ADMIN']}><AdminAgentDetailPage/></RequireRole>}</Route><Route path="/admin/ilanlar">{()=> <RequireRole roles={['ADMIN']}><AdminPropertiesPage/></RequireRole>}</Route><Route path="/admin/ilanlar/:id">{()=> <RequireRole roles={['ADMIN']}><AdminPropertyDetailPage/></RequireRole>}</Route><Route path="/admin/audit-logs">{()=> <RequireRole roles={['ADMIN']}><AdminAuditPage/></RequireRole>}</Route>
   <Route component={NotFoundPage}/>
 </Switch></ErrorBoundary>; }
-function App() { return <QueryClientProvider client={queryClient}>{import.meta.env.DEV&&DATA_MODE==='mock'&&<div role="status" className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-center text-xs font-medium text-amber-950">Demo veri modu açık · Giriş, favori kaydı, başvuru, ilan yönetimi ve admin işlemleri gerçek API gerektirir.</div>}<AuthProvider><TooltipProvider><WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/,'')}><Routed/></WouterRouter><Toaster/></TooltipProvider></AuthProvider></QueryClientProvider>; }
+const unsavedListeners = new Set<(dirty: boolean) => void>();
+const unsavedPendingHandlers = new Set<(href: string) => void>();
+let unsavedDirty = false;
+let unsavedPath = '';
+let unsavedBypass = false;
+let unsavedIntercepting = false;
+function currentHref() {
+  return `${window.location.pathname}${window.location.search}${window.location.hash}`;
+}
+function onUnsavedPop() {
+  if (!unsavedDirty || unsavedBypass) return;
+  const next = currentHref();
+  if (!unsavedPath || next === unsavedPath) return;
+  unsavedIntercepting = true;
+  unsavedBypass = true;
+  history.pushState(window.history.state, '', unsavedPath);
+  unsavedPendingHandlers.forEach(handler => handler(next));
+  window.setTimeout(() => {
+    unsavedBypass = false;
+    unsavedIntercepting = false;
+  }, 0);
+}
+const unsavedPopGuard = Symbol.for('yuva-unsaved-pop');
+if (typeof window !== 'undefined' && !(window as unknown as Record<symbol, boolean>)[unsavedPopGuard]) {
+  (window as unknown as Record<symbol, boolean>)[unsavedPopGuard] = true;
+  window.addEventListener('popstate', onUnsavedPop);
+}
+function useUnsavedChanges(dirty: boolean) {
+  useEffect(() => {
+    unsavedDirty = dirty;
+    if (dirty) unsavedPath = currentHref();
+    unsavedListeners.forEach(listener => listener(dirty));
+    return () => {
+      if (unsavedIntercepting) return;
+      unsavedDirty = false;
+      unsavedListeners.forEach(listener => listener(false));
+    };
+  }, [dirty]);
+}
+function UnsavedChanges() {
+  const [location, setLocation] = useLocation();
+  const dirtyRef = useRef(false);
+  const bypass = useRef(false);
+  const [pending, setPending] = useState<string | null>(null);
+  const stayRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const listener = (dirty: boolean) => {
+      dirtyRef.current = dirty;
+      if (!dirty) {
+        if (unsavedIntercepting) return;
+        unsavedPath = currentHref();
+        setPending(null);
+      }
+    };
+    unsavedListeners.add(listener);
+    unsavedPendingHandlers.add(setPending);
+    return () => {
+      unsavedListeners.delete(listener);
+      unsavedPendingHandlers.delete(setPending);
+    };
+  }, []);
+  useEffect(() => {
+    if (!dirtyRef.current && !unsavedIntercepting) unsavedPath = currentHref();
+  }, [location]);
+  useEffect(() => {
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!dirtyRef.current || bypass.current) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, []);
+  useEffect(() => {
+    const onClick = (event: MouseEvent) => {
+      if (!dirtyRef.current || bypass.current || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const anchor = (event.target as Element | null)?.closest?.('a[href]');
+      if (!(anchor instanceof HTMLAnchorElement)) return;
+      if (anchor.target === '_blank' || anchor.hasAttribute('download')) return;
+      const href = anchor.getAttribute('href');
+      if (!href || href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:')) return;
+      const url = new URL(href, window.location.href);
+      if (url.origin !== window.location.origin) return;
+      const next = `${url.pathname}${url.search}${url.hash}`;
+      const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      if (next === current) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setPending(next);
+    };
+    document.addEventListener('click', onClick, true);
+    return () => document.removeEventListener('click', onClick, true);
+  }, []);
+  useEffect(() => {
+    if (!pending) return;
+    stayRef.current?.focus();
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setPending(null); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [pending]);
+  const leave = () => {
+    const href = pending;
+    bypass.current = true;
+    unsavedBypass = true;
+    unsavedDirty = false;
+    dirtyRef.current = false;
+    unsavedListeners.forEach(listener => listener(false));
+    setPending(null);
+    if (href) setLocation(href);
+    window.setTimeout(() => {
+      bypass.current = false;
+      unsavedBypass = false;
+    }, 0);
+  };
+  if (!pending) return null;
+  return <div className="fixed inset-0 z-[80] grid place-items-center bg-[#203b34]/40 p-4" role="presentation">
+    <div role="dialog" aria-modal="true" aria-labelledby="unsaved-title" data-testid="dialog-unsaved" className="surface w-full max-w-md p-6">
+      <h2 id="unsaved-title" className="font-display text-xl font-bold">Kaydedilmemiş değişiklikleriniz var.</h2>
+      <p className="mt-2 text-sm text-muted-foreground">Bu sayfadan ayrılırsanız yaptığınız değişiklikler kaybolacaktır.</p>
+      <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <button ref={stayRef} type="button" className="inline-flex min-h-11 items-center justify-center rounded-xl border border-border px-4 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" data-testid="button-unsaved-stay" onClick={() => setPending(null)} onKeyDown={event => { if (event.key === 'Escape') setPending(null); }}>Sayfada Kal</button>
+        <button type="button" className="inline-flex min-h-11 items-center justify-center rounded-xl bg-primary px-4 text-sm font-bold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2" data-testid="button-unsaved-leave" onClick={leave}>Sayfadan Ayrıl</button>
+      </div>
+    </div>
+  </div>;
+}
+function App() { return <QueryClientProvider client={queryClient}>{import.meta.env.DEV&&DATA_MODE==='mock'&&<div role="status" className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-center text-xs font-medium text-amber-950">Demo veri modu açık · Giriş, favori kaydı, başvuru, ilan yönetimi ve admin işlemleri gerçek API gerektirir.</div>}<AuthProvider><TooltipProvider><WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/,'')}><UnsavedChanges/><Routed/></WouterRouter><Toaster/></TooltipProvider></AuthProvider></QueryClientProvider>; }
 export default App;
