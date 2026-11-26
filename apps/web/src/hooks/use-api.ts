@@ -21,9 +21,11 @@ import type {
   AdminAgentApplicationListQuery,
   AdminAgentApplicationSummaryQuery,
   AdminAgentListQuery,
+  AdminAgentSummaryQuery,
   AdminPropertyListQuery,
   AdminUserListQuery,
   AdminUserSummaryQuery,
+  AgentProfileStatusRequest,
   AuditLogListQuery,
   FavoriteListResponse,
   MyPropertyListQuery,
@@ -64,7 +66,11 @@ export const keys = {
   adminApplicationDocuments: (id: string) =>
     ['admin-agent-application-documents', id] as const,
   adminAgents: (q: AdminAgentListQuery) => ['admin-agents', q] as const,
+  adminAgentSummary: (q: AdminAgentSummaryQuery) =>
+    ['admin-agent-summary', q] as const,
   adminAgent: (id: string) => ['admin-agent', id] as const,
+  adminAgentLogo: (id: string, fileId: string) =>
+    ['admin-agent-logo', id, fileId] as const,
   adminProperties: (q: AdminPropertyListQuery) =>
     ['admin-properties', q] as const,
   adminProperty: (id: string) => ['admin-property', id] as const,
@@ -402,6 +408,48 @@ export const useAdminAgent = (id: string, enabled = true) =>
     queryFn: () => adminAgentsApi.getAgent(id),
     enabled: enabled && !!id,
   });
+
+export const useAdminAgentSummary = (
+  q: AdminAgentSummaryQuery,
+  enabled = true,
+) =>
+  useQuery({
+    queryKey: keys.adminAgentSummary(q),
+    queryFn: () => adminAgentsApi.getAgentSummary(q),
+    enabled,
+  });
+
+export const useAdminAgentLogo = (
+  id: string,
+  fileId: string | null | undefined,
+  enabled = true,
+) =>
+  useQuery({
+    queryKey: keys.adminAgentLogo(id, fileId ?? ''),
+    queryFn: () => adminAgentsApi.getAgentLogo(id, fileId!),
+    enabled: enabled && !!id && !!fileId,
+  });
+
+export const useUpdateAdminAgentStatus = (id: string, slug?: string) => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: AgentProfileStatusRequest) =>
+      adminAgentsApi.updateAgentStatus(id, body),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.adminAgent(id) });
+      void qc.invalidateQueries({ queryKey: ['admin-agents'] });
+      void qc.invalidateQueries({ queryKey: ['admin-agent-summary'] });
+      void qc.invalidateQueries({ queryKey: ['admin-users'] });
+      void qc.invalidateQueries({ queryKey: ['admin-user'] });
+      void qc.invalidateQueries({ queryKey: ['admin-user-summary'] });
+      if (slug) void qc.invalidateQueries({ queryKey: keys.agent(slug) });
+      void qc.invalidateQueries({ queryKey: ['agent-properties'] });
+      void qc.invalidateQueries({ queryKey: ['properties'] });
+      void qc.invalidateQueries({ queryKey: ['property'] });
+      void qc.invalidateQueries({ queryKey: ['admin-audit-logs'] });
+    },
+  });
+};
 
 export const useAdminApps = (
   q: AdminAgentApplicationListQuery,

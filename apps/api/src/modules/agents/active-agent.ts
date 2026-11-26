@@ -19,19 +19,52 @@ type OwnedProperty = {
   deletedAt: Date | null;
 };
 
+export async function lockAgentProfile(
+  tx: Prisma.TransactionClient,
+  profileId: string,
+) {
+  const rows = await tx.$queryRaw<
+    Array<{ id: string; isActive: boolean; userId: string }>
+  >`
+    SELECT id, "isActive" AS "isActive", "userId" AS "userId"
+    FROM agent_profiles
+    WHERE id = ${profileId}::uuid
+    FOR UPDATE
+  `;
+
+  return rows[0] ?? null;
+}
+
 export async function lockActiveAgent(
   tx: Prisma.TransactionClient,
   userId: string,
 ) {
+  const users = await tx.$queryRaw<
+    Array<{ id: string; userActive: boolean; role: string }>
+  >`
+    SELECT id, "isActive" AS "userActive", role::text AS role
+    FROM users
+    WHERE id = ${userId}::uuid
+    FOR SHARE
+  `;
+  const user = users[0];
+
+  if (!user || user.role !== Role.AGENT) {
+    throw new ForbiddenException('Agent profile not found');
+  }
+
+  if (!user.userActive) {
+    throw new UnauthorizedException('Unauthorized');
+  }
+
   const rows = await tx.$queryRaw<AgentRow[]>`
     SELECT p.id,
            p."isActive" AS "isActive",
-           u."isActive" AS "userActive",
-           u.role::text AS role
+           ${user.userActive}::boolean AS "userActive",
+           ${user.role}::text AS role
     FROM agent_profiles p
-    JOIN users u ON u.id = p."userId"
     WHERE p."userId" = ${userId}::uuid
-    FOR UPDATE OF p
+    FOR UPDATE
   `;
 
   return assertProfessionalAgent(rows[0]);

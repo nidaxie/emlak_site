@@ -70,7 +70,7 @@ Paneldeki ilan görseli ve sahip logosu authenticated blob ile yüklenir. Public
 - Emlakçı mutation’ları audit kaydı yazmaz.
 - Onaylı `AGENT` bireysel ilan endpoint’lerini kullanamaz; bireysel ilan `USER` rolüne bağlıdır.
 - Ayrı analytics endpoint’i yoktur. Dashboard her sayaç için `limit=1` liste sorgusu kullanır; `total` sayfanın kendisi değildir.
-- Admin detayında askıdaki logo hâlâ public dosya adresini kullanabilir.
+- Admin detayı mevcut logoyu `GET /api/v1/admin/agents/:id/files/:fileId` üzerinden authenticated blob ile alır. Public `/files/:id` askıda ve pasif hesapta 404 kalır.
 
 ## Manuel tarayıcı doğrulaması
 

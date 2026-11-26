@@ -47,6 +47,8 @@ export const adminApi = {
   rejectApplication: adminAgentApplicationsService.rejectApplication,
   agents: adminAgentsService.getAgents,
   agent: adminAgentsService.getAgent,
+  agentSummary: adminAgentsService.getAgentSummary,
+  agentLogo: adminAgentsService.getAgentLogo,
   agentStatus: adminAgentsService.updateAgentStatus,
   properties: adminPropertiesService.getProperties,
   property: adminPropertiesService.getProperty,

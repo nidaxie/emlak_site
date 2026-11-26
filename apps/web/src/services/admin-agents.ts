@@ -5,6 +5,9 @@ import type {
   AdminAgent,
   AdminAgentListItem,
   AdminAgentListQuery,
+  AdminAgentSummary,
+  AdminAgentSummaryQuery,
+  AgentProfileStatusRequest,
   PaginatedResponse,
 } from '@/types/api';
 
@@ -37,16 +40,36 @@ export const adminAgentsService = {
     return request<AdminAgent>(`/admin/agents/${id}`, {}, { auth: true });
   },
 
+  getAgentSummary: (
+    query: AdminAgentSummaryQuery = {},
+  ): Promise<AdminAgentSummary> => {
+    assertApiModeForAdminAgents();
+    return request<AdminAgentSummary>(
+      `/admin/agents/summary${queryString(query)}`,
+      {},
+      { auth: true },
+    );
+  },
+
+  getAgentLogo: (id: string, fileId: string): Promise<Blob> => {
+    assertApiModeForAdminAgents();
+    return request<Blob>(
+      `/admin/agents/${id}/files/${fileId}`,
+      {},
+      { auth: true },
+    );
+  },
+
   updateAgentStatus: (
     id: string,
-    isActive: boolean,
+    body: AgentProfileStatusRequest,
   ): Promise<ActiveStatusResponse> => {
     assertApiModeForAdminAgents();
     return request<ActiveStatusResponse>(
       `/admin/agents/${id}/status`,
       {
         method: 'PATCH',
-        body: JSON.stringify({ isActive }),
+        body: JSON.stringify(body),
       },
       { auth: true },
     );

@@ -878,6 +878,34 @@ function ownerImagePath(url: string | null | undefined, individual: boolean) {
   if (!fileId) return url;
   return individual ? `/api/v1/user-properties/me/files/${fileId}` : `/api/v1/properties/me/files/${fileId}`;
 }
+function usePrivateFile(path: string | null | undefined) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    if (!path) {
+      setSrc(null);
+      setFailed(false);
+      return;
+    }
+    let objectUrl = '';
+    let cancelled = false;
+    setSrc(null);
+    setFailed(false);
+    const requestPath = path.startsWith('/api/v1') ? path.slice('/api/v1'.length) : path;
+    request<Blob>(requestPath, {}, { auth: true }).then(blob => {
+      if (cancelled) return;
+      objectUrl = URL.createObjectURL(blob);
+      setSrc(objectUrl);
+    }).catch(() => {
+      if (!cancelled) setFailed(true);
+    });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [path]);
+  return { src, failed };
+}
 function useOwnedImage(path: string | null | undefined) {
   const [src, setSrc] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
@@ -2028,17 +2056,23 @@ function AdminAgentDetailPage() {
   const [match,params]=useRoute('/admin/emlakcilar/:id'); const id=params?.id||'';
   const {toast}=useToast();
   const q=useAdminAgent(id,!isMock); const qc=useQueryClient();
-  const [message,setMessage]=useState(''); const [errorMsg,setErrorMsg]=useState('');
+  const [reason,setReason]=useState(''); const [message,setMessage]=useState(''); const [errorMsg,setErrorMsg]=useState('');
+  const logo=usePrivateFile(q.data?.logo?.url ?? null);
   const mutation=useMutation({
-    mutationFn:(active:boolean)=>adminAgentsApi.updateAgentStatus(id,active),
+    mutationFn:(body:{isActive:boolean;reason:string})=>adminAgentsApi.updateAgentStatus(id,body),
     onSuccess:()=>{
       void qc.invalidateQueries({queryKey:keys.adminAgent(id)});
       void qc.invalidateQueries({queryKey:['admin-agents']});
+      void qc.invalidateQueries({queryKey:['admin-agent-summary']});
+      void qc.invalidateQueries({queryKey:['admin-users']});
+      void qc.invalidateQueries({queryKey:['admin-user']});
+      void qc.invalidateQueries({queryKey:['admin-user-summary']});
       if(q.data?.slug)void qc.invalidateQueries({queryKey:keys.agent(q.data.slug)});
       void qc.invalidateQueries({queryKey:['agent-properties']});
       void qc.invalidateQueries({queryKey:['properties']});
       void qc.invalidateQueries({queryKey:['property']});
       void qc.invalidateQueries({queryKey:['admin-audit-logs']});
+      setReason('');
       setErrorMsg('');
       setMessage('Emlakçı profil durumu güncellendi.');
       toast({title:'Emlakçı profil durumu güncellendi.'});
@@ -2049,9 +2083,15 @@ function AdminAgentDetailPage() {
   if(isMock)return <AdminLayout><EmptyState title="Bu özellik gerçek API bağlantısı gerektirir" text="Emlakçı detayını görüntülemek için gerçek API modunda giriş yapın." href="/ilanlar" action="İlanları keşfet"/></AdminLayout>;
   const toggleAgentStatus=()=>{
     if(!q.data)return;
+    const nextReason=reason.trim();
+    if(nextReason.length<3||nextReason.length>500){
+      setMessage('');
+      setErrorMsg('Gerekçe 3 ile 500 karakter arasında olmalıdır.');
+      return;
+    }
     if(q.data.isActive&&!window.confirm('Emlakçı profilini pasife almak istediğinize emin misiniz? Pasif profilin public sayfası ve ilanları gizlenir.'))return;
     setMessage('');setErrorMsg('');
-    mutation.mutate(!q.data.isActive);
+    mutation.mutate({isActive:!q.data.isActive,reason:nextReason});
   };
   return <AdminLayout>
     <Link href="/admin/emlakcilar" className="mb-4 inline-flex items-center gap-2 text-sm text-muted-foreground"><ArrowLeft size={15}/> Emlakçılar</Link>
@@ -2059,7 +2099,7 @@ function AdminAgentDetailPage() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-center gap-4">
           <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-2xl bg-muted text-primary">
-            {q.data.logoUrl&&fileUrl(q.data.logoUrl)?<img src={fileUrl(q.data.logoUrl)!} alt={`${q.data.companyName} logosu`} className="h-full w-full object-cover"/>:<Building2 size={28}/>}
+            {logo.src&&!logo.failed?<img src={logo.src} alt={`${q.data.companyName} logosu`} data-testid="img-admin-agent-logo" className="h-full w-full object-cover"/>:<Building2 size={28}/>}
           </div>
           <div>
             <p className="text-xs font-bold uppercase tracking-widest text-primary">Emlakçı profili</p>
@@ -2067,7 +2107,10 @@ function AdminAgentDetailPage() {
             <p className="mt-1 text-sm text-muted-foreground">{q.data.city}, {q.data.district} · /emlakci/{q.data.slug}</p>
           </div>
         </div>
-        <button type="button" disabled={mutation.isPending} data-testid="button-toggle-agent-status" onClick={toggleAgentStatus} className="rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">{mutation.isPending?'Güncelleniyor…':q.data.isActive?'Profili pasife al':'Profili aktifleştir'}</button>
+        <div className="grid w-full max-w-sm gap-2">
+          <textarea className={inputClass} rows={3} placeholder="Yönetim gerekçesi" aria-label="Yönetim gerekçesi" data-testid="input-admin-agent-reason" value={reason} onChange={e=>setReason(e.target.value)}/>
+          <button type="button" disabled={mutation.isPending} data-testid="button-toggle-agent-status" onClick={toggleAgentStatus} className="rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">{mutation.isPending?'Güncelleniyor…':q.data.isActive?'Profili pasife al':'Profili aktifleştir'}</button>
+        </div>
       </div>
       <div className="mt-6 grid gap-4 border-t border-border pt-5 sm:grid-cols-2">
         <Info label="Hesap durumu (User.isActive)" value={q.data.user.isActive?'Aktif':'Pasif'}/>

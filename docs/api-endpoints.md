@@ -136,11 +136,13 @@ Auth sütunu:
 
 ## Admin Agents
 
-| Method | Path                       | Auth   | Role    | Request               | Response                                | Purpose                 |
-| ------ | -------------------------- | ------ | ------- | --------------------- | --------------------------------------- | ----------------------- |
-| GET    | `/admin/agents`            | Bearer | `ADMIN` | `AdminAgentListQuery` | `PaginatedResponse<AdminAgentListItem>` | Emlakçı listesi         |
-| GET    | `/admin/agents/:id`        | Bearer | `ADMIN` | —                     | `AdminAgent`                            | Emlakçı detayı          |
-| PATCH  | `/admin/agents/:id/status` | Bearer | `ADMIN` | `ActiveStatusRequest` | `ActiveStatusResponse`                  | `AgentProfile.isActive` |
+| Method | Path                              | Auth   | Role    | Request               | Response                                | Purpose                 |
+| ------ | --------------------------------- | ------ | ------- | --------------------- | --------------------------------------- | ----------------------- |
+| GET    | `/admin/agents`                   | Bearer | `ADMIN` | `AdminAgentListQuery` | `PaginatedResponse<AdminAgentListItem>` | Emlakçı listesi         |
+| GET    | `/admin/agents/summary`           | Bearer | `ADMIN` | `AdminAgentSummaryQuery` | `AdminAgentSummary`                  | Sayaç, portföy ve yeni profil serisi |
+| GET    | `/admin/agents/:id`               | Bearer | `ADMIN` | —                     | `AdminAgent`                            | Emlakçı detayı          |
+| GET    | `/admin/agents/:id/files/:fileId` | Bearer | `ADMIN` | —                     | logo akışı                              | Mevcut private logo     |
+| PATCH  | `/admin/agents/:id/status`        | Bearer | `ADMIN` | `AgentProfileStatusRequest` | `ActiveStatusResponse`            | `AgentProfile.isActive` |
 
 ## Admin Properties
 

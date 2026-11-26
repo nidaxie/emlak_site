@@ -10,6 +10,13 @@ export function agentOwnedLogoUrl(fileId: string | null | undefined) {
   return fileId ? `/api/v1/agents/me/files/${fileId}` : null;
 }
 
+export function adminAgentLogoUrl(
+  profileId: string,
+  fileId: string | null | undefined,
+) {
+  return fileId ? `/api/v1/admin/agents/${profileId}/files/${fileId}` : null;
+}
+
 export function userOwnedFileUrl(fileId: string | null | undefined) {
   return fileId ? `/api/v1/user-properties/me/files/${fileId}` : null;
 }

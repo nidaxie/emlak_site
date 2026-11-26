@@ -442,7 +442,7 @@ describe('Backend readiness (e2e)', () => {
     const hiddenProfile = await http()
       .patch(`/api/v1/admin/agents/${owner.profileId}/status`)
       .set('Authorization', `Bearer ${admin.token}`)
-      .send({ isActive: false });
+      .send({ isActive: false, reason: 'Yonetim gerekcesi' });
     const publicAgent = await http().get(`/api/v1/agents/${owner.slug}`);
     const publicListing = await http().get(`/api/v1/properties/${created.id}`);
     const stillIn = await http()
@@ -452,7 +452,7 @@ describe('Backend readiness (e2e)', () => {
     const restored = await http()
       .patch(`/api/v1/admin/agents/${owner.profileId}/status`)
       .set('Authorization', `Bearer ${admin.token}`)
-      .send({ isActive: true });
+      .send({ isActive: true, reason: 'Yonetim gerekcesi' });
     const imageAudit = await prisma.auditLog.findFirst({
       where: {
         entityId: text(secondImage.id),

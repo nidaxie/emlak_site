@@ -436,6 +436,11 @@ export interface ActiveStatusRequest {
   isActive: boolean;
 }
 
+export interface AgentProfileStatusRequest {
+  isActive: boolean;
+  reason: string;
+}
+
 export interface ActiveStatusResponse {
   id: string;
   isActive: boolean;
@@ -547,32 +552,110 @@ export interface AdminUserSummary {
   } | null;
 }
 
+export interface AdminAgentLogo {
+  fileId: string;
+  url: string;
+}
+
 export interface AdminAgentListItem {
   id: string;
   slug: string;
   companyName: string;
+  phone: string;
+  email: string;
   city: string;
   district: string;
   isActive: boolean;
   createdAt: string;
   user: {
     id: string;
+    firstName: string | null;
+    lastName: string | null;
     email: string;
     role: Role;
     isActive: boolean;
   };
+  logo: AdminAgentLogo | null;
+  listingSummary: AdminListingCounts;
+}
+
+export interface AdminAgentListingSummary extends AdminListingCounts {
+  listingTypes: Record<ListingType, number>;
+  propertyTypes: Record<PropertyType, number>;
+}
+
+export interface AdminAgentApprovedApplications {
+  userId: string;
+  status: 'APPROVED';
+  total: number;
+  listPath: string;
 }
 
 export interface AdminAgent extends AgentProfile {
   userId: string;
   user: AdminUser;
+  logo: AdminAgentLogo | null;
+  listingSummary: AdminAgentListingSummary;
+  approvedApplications: AdminAgentApprovedApplications;
+  propertiesPath: string;
+  managementEvents: PaginatedResponse<AuditLog>;
 }
 
 export interface AdminAgentListQuery extends PageQuery {
+  search?: string;
   isActive?: 'true' | 'false';
+  userIsActive?: 'true' | 'false';
   companyName?: string;
   city?: string;
   district?: string;
+  userId?: string;
+  createdFrom?: string;
+  createdTo?: string;
+}
+
+export interface AdminAgentSummaryQuery {
+  createdFrom?: string;
+  createdTo?: string;
+  bucket?: 'day' | 'month';
+}
+
+export interface AdminAgentProfileAccountCounts {
+  activeProfileActiveAccount: number;
+  activeProfileInactiveAccount: number;
+  suspendedProfileActiveAccount: number;
+  suspendedProfileInactiveAccount: number;
+}
+
+export interface AdminAgentCityCount {
+  city: string;
+  count: number;
+}
+
+export interface AdminAgentSummary {
+  total: number;
+  active: number;
+  suspended: number;
+  publiclyVisible: number;
+  accountStatuses: {
+    active: number;
+    inactive: number;
+  };
+  profileAccounts: AdminAgentProfileAccountCounts;
+  listingSummary: AdminListingCounts;
+  cities: {
+    basis: 'stored-city-name';
+    items: AdminAgentCityCount[];
+    otherCount: number;
+    blankCount: number;
+    distinctCount: number;
+  };
+  created: {
+    from: string;
+    to: string;
+    bucket: 'day' | 'month';
+    total: number;
+    points: AdminUserRegistrationPoint[];
+  } | null;
 }
 
 export interface ApplicationDocumentCompletion {
