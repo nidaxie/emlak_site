@@ -476,7 +476,7 @@ Detayda vergi numarası, hesap e-postası ve `agentProfileId` yoktur. Public olm
 }
 ```
 
-Vergi numarası, açık adres, belge ve `isActive` bu yanıtta yoktur. İlanlar gömülü değildir. Slug yoksa veya profil pasifse 404 `Agent profile not found` döner. Bu endpoint sahip hesabının aktifliğini kontrol etmez. Profil aktif ve sahip pasifse profil hâlâ 200 dönebilir. İlan listesi o ilanları dışarıda bırakır.
+Vergi numarası, açık adres, belge ve `isActive` bu yanıtta yoktur. İlanlar gömülü değildir. Slug yoksa, profil pasifse veya bağlı kullanıcı hesabı pasifse 404 `Agent profile not found` döner (`AgentProfile.isActive = true` ve `User.isActive = true` birlikte gereklidir).
 
 `city` ve `district` burada serbest metindir. Lokasyon tablosunun ID'si değildir.
 
@@ -484,7 +484,7 @@ Vergi numarası, açık adres, belge ve `isActive` bu yanıtta yoktur. İlanlar 
 
 `GET /agents/:slug/properties`
 
-Filtre, sıralama, sayfalama ve kart `GET /properties` ile aynıdır. Aynı `PropertyCard` kullanılır. Slug, emlakçıyı seçer. Sonuç yalnız o profilin public ilanlarıdır. Pasif, satılmış, kiralanmış ve silinmiş ilan gelmez. Bilinmeyen veya pasif slug 404 döner.
+Filtre, sıralama, sayfalama ve kart `GET /properties` ile aynıdır. Aynı `PropertyCard` kullanılır. Slug, emlakçıyı seçer. Sonuç yalnız o profilin public ilanlarıdır. Pasif, satılmış, kiralanmış ve silinmiş ilan gelmez. Bilinmeyen, askıdaki veya sahip hesabı pasif olan emlakçı slug'ı 404 döner.
 
 ## 4.8 Favoriler
 
@@ -830,6 +830,8 @@ owner agent logo
 
 Sahip logo: `GET /agents/me/files/:fileId`. Yalnız oturumdaki profilin mevcut logosu. Askı okumayı kapatmaz. Başka hesap 404.
 
+Admin logo: `GET /admin/agents/:id/files/:fileId`. Yalnız aktif `ADMIN` ve profilin güncel `logoFileId` değeri. Askı veya pasif kullanıcı erişimi kapatmaz; `Cache-Control: private, no-store`, başka profil/belge/ilan görseli/eski veya silinmiş dosya 404 döner. Public `/files/:id` askıda ve pasif kullanıcıda 404 kalır.
+
 Sahip ilan görseli: `GET /properties/me/files/:fileId` ve `GET /user-properties/me/files/:fileId`.
 
 Sahip: `GET /agent-applications/me/documents/:documentId`
@@ -959,17 +961,63 @@ Red gövdesi `{ "reason": "..." }` olur. `reason` trim edilir, 3–500 karakterd
 
 ```text
 GET   /admin/agents
+GET   /admin/agents/summary
 GET   /admin/agents/:id
+GET   /admin/agents/:id/files/:fileId
 PATCH /admin/agents/:id/status
 ```
 
-Liste query'si `isActive` (`"true"` / `"false"`), `companyName`, `city`, `district`, `page`, `limit`. Metin filtreleri içerir ve harf duyarsızdır. Bu şehir ve ilçe profil metnidir.
+`summary`, `/:id` rotasından önce kayıtlıdır. Yalnız aktif `ADMIN` kullanır. Pasif admin 401 döner. `USER`, `AGENT` ve askıdaki `AGENT` 403 döner.
 
-Liste öğesi `id`, `slug`, `companyName`, `city`, `district`, `isActive`, `createdAt` ve `user: { id, email, role, isActive }` taşır.
+Liste query'si `search`, `isActive`, `userIsActive`, `companyName`, `city`, `district`, `userId`, `createdFrom`, `createdTo`, `page`, `limit`. `isActive` profil durumudur. `userIsActive` hesap durumudur. İkisi ayrı parametredir ve birlikte AND olur. `search` trim edilir, ardışık boşluklar tek boşluğa indirilir, boşsa yok sayılır. Firma adı, firma e-postası, vergi numarası, firma telefonu, hesap e-postası, hesap telefonu, ad, soyad ve çok kelimeli terimlerde sınırlandırılmış bölme noktalarıyla (`splitLimit = 5`, en fazla 4 bölme) iki yönlü ad soyad aranır. Başvurudaki yetkili adları aranmaz. Metin eşleşmesi Prisma `insensitive` üzerinden PostgreSQL `ILIKE` kullanır. Bu veritabanında `i` ile `İ` eşleşir. Ayrı bir Türkçe dönüştürme tablosu yoktur. `companyName`, `city` ve `district` profil metninde içerir aramasıdır; lokasyon FK'si değildir. `createdFrom` ve `createdTo` `AgentProfile.createdAt` üzerindedir, UTC günü dahilidir ve kullanıcının kayıt tarihi değildir. Saatli değer `Z` veya offset taşır. Geçersiz tarih, ters aralık, `limit > 100` ve geçersiz `userId` 400 döner. Sıra `createdAt DESC`, `id DESC` olarak durur. Sayfalama `{ items, page, limit, total }` şeklindedir. `total` aynı filtreyle hesaplanır.
 
-Detay `AgentProfile` artı `userId` ve `user` (`AdminUser`) olur.
+Liste öğesi `id`, `slug`, `companyName`, `phone`, `email`, `city`, `district`, `isActive`, `createdAt`, `user` (`id`, `firstName`, `lastName`, `email`, `role`, `isActive`), `logo` ve `listingSummary` taşır. `phone` ve `email` firma iletişimidir. Vergi numarası, `passwordHash` ve `tokenVersion` listede yoktur. `logo` yoksa `null`, varsa `{ fileId, url }` olur. `url` `/api/v1/admin/agents/:id/files/:fileId` yoludur. `listingSummary` `total`, `active`, `inactive`, `sold`, `rented`, `publiclyVisible` alanlarıdır. `total`, dört durumun toplamıdır. `publiclyVisible` durum değildir; mevcut `publicPropertyWhere` ile yalnız o profilin profesyonel ilanlarını sayar. Soft-delete ve bireysel ilanlar portföye girmez. Sayfadaki profiller iki toplu `groupBy` ile sayılır; her profil için ayrı count açılmaz. `pg` havuzu üzerinden ölçülen SQL sorgu sayısı `listForAdmin` için sayfa boyutundan bağımsız sabit 5 sorgudur (`limit=1` ve `limit=20` için 5: profil sayfası, total count, bağlı kullanıcı batch seçimi ve 2 property `groupBy`), `getForAdmin` 9 sorgu, `summary` zaman serisiz 4 ve zaman serili 5 SQL sorgusu yürütür.
 
-Durum `{ "isActive": false }` ile `AgentProfile.isActive` değiştirir. `User.role` ve başvuru durumu değişmez. `User.isActive` ayrıdır. Hesap aktif ve profil pasifse kullanıcı giriş yapar, public profil ve public ilanlar görünmez. İlan satırlarının `status` değeri topluca değiştirilmez. Public profil ve emlakçı ilan listesi `AgentProfile.isActive = true` ve `User.isActive = true` ister. Aynı profil `{ "isActive": true }` ile yeniden açılır. Audit `AGENT_PROFILE_DEACTIVATED` ve `AGENT_PROFILE_ACTIVATED` yazar. Yanıt `{ "id", "isActive" }` olur.
+Detay, `AgentProfile` alanlarına `userId`, `user` (`AdminUser`), `logoUrl`, `logo`, `listingSummary`, `approvedApplications`, `propertiesPath` ve `managementEvents` ekler. `logoUrl` public dosya yoludur ve askıda veya pasif hesapta 404 verir. Admin görseli `logo.url` ile authenticated blob olarak alınır. Logo yoksa `logo` `null` olur. Detay `listingSummary` altı sayaca ek olarak `listingTypes` (`SALE`, `RENT`) ve `propertyTypes` (`APARTMENT`, `HOUSE`, `VILLA`, `LAND`, `WORKPLACE`) taşır. İkisi de yalnız bu profilin silinmemiş profesyonel ilanlarıdır. `propertiesPath` mevcut `GET /admin/properties?agentUserId=` filtresidir. İlan geçmişi detaya gömülmez.
+
+`AgentApplication` ile `AgentProfile` arasında FK yoktur. `approvedApplications` tek başvuru seçmez. `{ userId, status: "APPROVED", total, listPath }` döner. `listPath`, o kullanıcının onaylı başvurularının filtrelenmiş listesidir. Birden fazla onaylı başvuru varsa `total` bunu söyler.
+
+`managementEvents` hedefi `AGENT_PROFILE` ve bu profil olan son 10 audit kaydıdır. Sayfa şekli `{ items, page, limit, total }` olur. Tam sayfa `GET /admin/audit-logs?entityType=AGENT_PROFILE&entityId=` olur. Eski kayıtlarda `reason` olmayabilir.
+
+Private logo yalnız bu profilin güncel `logoFileId` değeridir. Başka profil, başvuru belgesi, ilan görseli, silinmiş dosya ve değiştirilmiş eski logo 404 döner. Dosya diskte yoksa 404 `File not found` döner. Yanıt `Cache-Control: private, no-store` ve dosyanın MIME türünü taşır. Token URL'de yoktur. Public `/files/:id` kuralı değişmez.
+
+Durum gövdesi `{ "isActive": false, "reason": "..." }` olur. `reason` trim edilir, 3–500 karakterdir ve boş olamaz. Geçersiz gerekçe, durum zaten aynı olsa bile 400 döner. Geçerli gerekçeyle aynı durum tekrar gönderilirse audit yazılmaz, ilan durumları, kullanıcı, rol ve `tokenVersion` değişmez. Yanıt `{ "id", "isActive" }` olur. Gerçek değişiklikte yalnız `AgentProfile.isActive` değişir. Kullanıcı, rol, başvuru, ilan durumları ve dosyalar durur. `tokenVersion` artmaz ve oturumlar kapatılmaz. Audit ile durum aynı transaction içindedir. Audit yazılamazsa durum geri alınır. Kayıt `AGENT_PROFILE_DEACTIVATED` veya `AGENT_PROFILE_ACTIVATED` olur. Metadata `{ previousIsActive, nextIsActive, reason }` taşır. Transaction profil satırını `FOR UPDATE` ile kilitler, ardından aktörün `users` satırını `FOR SHARE` ile kilitleyip hâlâ aktif `ADMIN` olduğunu doğrular; değilse 403 döner ve durum değişmez. Emlakçı yazma kapısı (`lockActiveAgent`) ise önce `users` satırını `FOR SHARE`, ardından `agent_profiles` satırını `FOR UPDATE` ile kilitler; böylece hesap pasife alma işlemi devam eden emlakçı yazma işlemiyle çakışmadan sıralanır.
+
+`GET /admin/agents/summary` platformdaki bütün profilleri sayar. Liste filtresi ve zaman serisi bu sayaçları değiştirmez. Aralık yoksa `created` `null` olur. `createdFrom`, `createdTo` ve `bucket` (`day` veya `month`) birlikte zorunludur. Günlük en fazla 366, aylık en fazla 36 kovadır. Boş kova `0` döner. Seri `AgentProfile.createdAt` üzerindedir; başvuru veya onay sayısı değildir.
+
+```json
+{
+  "total": 0,
+  "active": 0,
+  "suspended": 0,
+  "publiclyVisible": 0,
+  "accountStatuses": { "active": 0, "inactive": 0 },
+  "profileAccounts": {
+    "activeProfileActiveAccount": 0,
+    "activeProfileInactiveAccount": 0,
+    "suspendedProfileActiveAccount": 0,
+    "suspendedProfileInactiveAccount": 0
+  },
+  "listingSummary": {
+    "total": 0,
+    "active": 0,
+    "inactive": 0,
+    "sold": 0,
+    "rented": 0,
+    "publiclyVisible": 0
+  },
+  "cities": {
+    "basis": "stored-city-name",
+    "items": [{ "city": "Konya", "count": 1 }],
+    "otherCount": 0,
+    "blankCount": 0,
+    "distinctCount": 1
+  },
+  "created": null
+}
+```
+
+`active` profil aktifliğidir. `suspended` askıdaki profildir. `publiclyVisible` profil sayısı, public profil kuralıdır: profil ve hesap birlikte aktiftir. `profileAccounts` dört kombinasyonun toplamı `total` ile aynıdır. `listingSummary` bütün profillerin silinmemiş profesyonel ilanlarıdır. Askı veya pasif hesap, kayıtlı ilanı bu toplamdan çıkarmaz. `cities` `AgentProfile.city` metnidir, `City` tablosuna bağlanmaz ve büyük küçük harfi ayrı tutar. Boş veya yalnız boşluk şehir bir isme yazılmaz; `blankCount` olur. `items` en yüksek 10 adlandırılmış şehirdir. Kalan adlandırılmış toplam `otherCount` olur. `created`, kullanıcı summary'sindeki `registrations` ile aynı kova şeklindedir: `from`, `to`, `bucket`, `total`, `points`. `points` öğesi `{ bucketStart, count }` olur. Grafik adı "Yeni Emlakçı Profilleri" bu seridir.
 
 ### Properties
 

@@ -43,7 +43,7 @@ Mock modda (`DATA_MODE === 'mock'`) admin sayfaları sahte kayıt üretmez; “B
 | `/admin/basvurular` | `AdminApplicationsPage` | Başvuru kuyruğu | `GET /admin/agent-applications` | ADMIN | skeleton, `ErrorState`, “Başvuru bulunamadı” | Tablo yatay kayar | Varsayılan filtre `PENDING` |
 | `/admin/basvurular/:id` | `AdminApplicationDetailPage` | İnceleme, belge, onay/ret | `GET/POST .../admin/agent-applications/:id`, documents, approve, reject | ADMIN | skeleton, `ErrorState`, belge hatası metni | `lg` iki kolon | Yalnız `PENDING` iken aksiyon |
 | `/admin/emlakcilar` | `AdminAgentsPage` | Profil listesi | `GET /admin/agents` | ADMIN | skeleton, `ErrorState`, boş metin | Filtre grid + kayan tablo | Firma, şehir, ilçe, profil aktifliği |
-| `/admin/emlakcilar/:id` | `AdminAgentDetailPage` | Profil detayı ve askı | `GET /admin/agents/:id`, `PATCH /admin/agents/:id/status` | ADMIN | skeleton, `ErrorState` | Logo ve metin yan yana, `flex-wrap` | Gerekçe alanı yok |
+| `/admin/emlakcilar/:id` | `AdminAgentDetailPage` | Profil detayı ve askı | `GET /admin/agents/:id`, `PATCH /admin/agents/:id/status` | ADMIN | skeleton, `ErrorState` | Logo ve metin yan yana, `flex-wrap` | Gerekçe alanı ve private logo bağlandı. Ekran redesign'ı 3.4.2 |
 | `/admin/ilanlar` | `AdminPropertiesPage` | İlan listesi | `GET /admin/properties` | ADMIN | skeleton, `ErrorState`, boş metin | Kayan tablo | Durum, ilan türü, şehir tam eşleşme, silinmiş/silinmemiş |
 | `/admin/ilanlar/:id` | `AdminPropertyDetailPage` | İlan detayı, pasife alma, soft delete, fotoğraf silme | `GET /admin/properties/:id`, `PATCH .../deactivate`, `DELETE .../:id`, `DELETE .../images/:imageId` | ADMIN | skeleton, `ErrorState`, fotoğraf yok metni | `lg` iki kolon, galeri `grid-cols-2/4` | Gerekçe 3–500 karakter |
 | `/admin/audit-logs` | `AdminAuditPage` | Salt okunur işlem kayıtları | `GET /admin/audit-logs` | ADMIN | skeleton, `ErrorState`, “İşlem kaydı yok” | Kayan tablo, metadata `<pre>` | Varlık türü ve tam UUID filtresi |
@@ -52,7 +52,9 @@ Mock modda (`DATA_MODE === 'mock'`) admin sayfaları sahte kayıt üretmez; “B
 
 Admin menüsü `AdminLayout` içindedir ve her zaman içerik ızgarasının üstünde veya yanında durur. Aktif route sınıfı yoktur. 1024 px altı için drawer yoktur. Emlakçı panelindeki `PanelLayout` drawer’ı admin’de kullanılmaz.
 
-## 3. Mevcut admin API envanteri
+## 3. Mevcut admin API envanteri (FAZ 3.1 başlangıç snapshot'ı)
+
+> **Tarihsel snapshot notu:** Aşağıdaki tablo FAZ 3.1 salt okunur analiz anındaki (2026-11-25) başlangıç envanterini kaydeder; `AdminAgentsController` satırları (`GET /api/v1/admin/agents`, `GET /api/v1/admin/agents/summary`, `GET /api/v1/admin/agents/:id`, `GET /api/v1/admin/agents/:id/files/:fileId`, `PATCH /api/v1/admin/agents/:id/status`) FAZ 3.4.1 güncel sözleşmesine göre parantez içi notlarla işaretlenmiştir. Güncel ayrıntılı sözleşme Bölüm 8 (`FAZ 3.4.1 güncel sözleşme`) ve `docs/frontend-integration.md` içindeki Agents bölümündedir.
 
 Yetki sınıf düzeyindedir: `JwtAuthGuard` + `RolesGuard` + `@Roles(Role.ADMIN)`. Başka modüllerde ADMIN rolüne açık ek bir controller yoktur. `USER` ve `AGENT` controller’ları kendi rollerine kilitlidir. Public `GET /properties`, `GET /agents/:slug`, `GET /files/:id`, `GET /locations/*` guardsızdır.
 
@@ -69,9 +71,11 @@ Sayfalama sözleşmesi her listede `{ items, page, limit, total }`. `limit` en f
 | GET | `/api/v1/admin/agent-applications/:id/documents/:documentId` | `openDocument` | `openForAdmin` | iki UUID | ADMIN | — | — | yok | çapraz id ve silinmiş dosya e2e | Çalışıyor |
 | POST | `/api/v1/admin/agent-applications/:id/approve` | `approve` | `approve` | body yok | ADMIN | — | — | `AGENT_APPLICATION_APPROVED` | onay, eşzamanlılık, belge, profil e2e | Çalışıyor, yeniden yazılmamalı |
 | POST | `/api/v1/admin/agent-applications/:id/reject` | `reject` | `reject` | `RejectAgentApplicationDto` | ADMIN | — | — | `AGENT_APPLICATION_REJECTED` + `metadata.reason` | e2e | Çalışıyor |
-| GET | `/api/v1/admin/agents` | `AdminAgentsController.list` | `AgentsService.listForAdmin` | `ListAgentsQueryDto` | ADMIN | var | `isActive`, `companyName`, `city`, `district` contains | yok | dolaylı | Çalışıyor |
-| GET | `/api/v1/admin/agents/:id` | `detail` | `getForAdmin` | UUID | ADMIN | — | — | yok | dolaylı | Çalışıyor |
-| PATCH | `/api/v1/admin/agents/:id/status` | `setStatus` | `setActive` | `UpdateAgentStatusDto` | ADMIN | — | — | `AGENT_PROFILE_ACTIVATED` / `DEACTIVATED`, metadata yok | `properties.e2e-spec.ts` askı | Çalışıyor, gerekçe yok |
+| GET | `/api/v1/admin/agents` | `AdminAgentsController.list` | `AgentsService.listForAdmin` | `ListAgentsQueryDto` | ADMIN | var | FAZ 3.1: `isActive`, `companyName`, `city`, `district` *(FAZ 3.4.1'de `search`, `userIsActive`, `userId`, `createdFrom/To`, portföy & logo ile genişletildi)* | yok | `admin-agents.e2e-spec.ts` | FAZ 3.4.1 ile güncellendi |
+| GET | `/api/v1/admin/agents/summary` | `AdminAgentsController.summary` | `AgentsService.summary` | `AgentSummaryQueryDto` | ADMIN | — | `createdFrom`, `createdTo`, `bucket` *(FAZ 3.4.1'de eklendi)* | yok | `admin-agents.e2e-spec.ts` | FAZ 3.4.1 ile eklendi |
+| GET | `/api/v1/admin/agents/:id` | `detail` | `getForAdmin` | UUID | ADMIN | — | FAZ 3.1: yalnız temel profil/user *(FAZ 3.4.1'de `listingSummary`, `approvedApplications`, `propertiesPath`, `managementEvents`, `logo` eklendi)* | yok | `admin-agents.e2e-spec.ts` | FAZ 3.4.1 ile güncellendi |
+| GET | `/api/v1/admin/agents/:id/files/:fileId` | `AdminAgentsController.openLogo` | `AgentsService.openAdminLogo` | iki UUID | ADMIN | — | yalnız profilin güncel `logoFileId` logosu *(FAZ 3.4.1'de eklendi)* | yok | `admin-agents.e2e-spec.ts` | FAZ 3.4.1 ile eklendi |
+| PATCH | `/api/v1/admin/agents/:id/status` | `setStatus` | `setActive` | `UpdateAgentStatusDto` | ADMIN | — | — | `AGENT_PROFILE_ACTIVATED` / `DEACTIVATED`, metadata `previousIsActive`, `nextIsActive`, `reason` | `admin-agents.e2e-spec.ts` | Gerekçe zorunlu, no-op audit yazmaz |
 | GET | `/api/v1/admin/properties` | `AdminPropertiesController.list` | `PropertiesService.listForAdmin` | `ListAdminPropertiesQueryDto` | ADMIN | var | `status`, `listingType`, `city` tam ad, `deleted` | yok | properties ve user-properties e2e | Çalışıyor |
 | GET | `/api/v1/admin/properties/:id` | `detail` | `getForAdmin` | UUID | ADMIN | — | silinmiş kayıt da döner | yok | e2e | Çalışıyor |
 | PATCH | `/api/v1/admin/properties/:id/deactivate` | `deactivate` | `deactivate` | `ModerationReasonDto` | ADMIN | — | yalnız `ACTIVE` ve silinmemiş | `PROPERTY_DEACTIVATED_BY_ADMIN` + reason | e2e | Çalışıyor; sahip kararı geri alabilir |
@@ -81,7 +85,7 @@ Sayfalama sözleşmesi her listede `{ items, page, limit, total }`. `limit` en f
 
 Frontend’in kullandığı admin çağrıları yukarıdaki listenin tamamıdır (`apps/web/src/services/admin-users.ts`, `admin-agents.ts`, `admin-agent-applications.ts`, `admin-properties.ts`, `admin-audit.ts`). Kullanılmayan ayrı bir admin endpoint yoktur.
 
-Olmayan ve bu fazda yazılmayanlar: kullanıcı arama-ad, kullanıcı ilan sayısı, emlakçı ilan sayısı, admin logo/ilan dosyası, moderasyon kısıtı, audit actor/action filtresi, dashboard summary.
+FAZ 3.1 analiz anında olmayanlar: kullanıcı arama-ad, kullanıcı ilan sayısı, emlakçı ilan sayısı *(FAZ 3.4.1'de eklendi)*, admin logo/ilan dosyası *(admin private logo FAZ 3.4.1'de eklendi; ilan dosyası FAZ 3.5)*, moderasyon kısıtı, audit actor/action filtresi, dashboard summary *(emlakçı summary FAZ 3.4.1'de eklendi)*.
 
 ## 4. Admin authentication ve authorization
 
@@ -279,6 +283,14 @@ E2e: `agent-applications.e2e-spec.ts` liste yetkisi, onay, ret, eşzamanlı kara
 Backend karar mekanizması hazırdır. Yeni approve/reject yazılmamalı. Kalan iş frontend ve ince liste alanlarıdır: arama, belge sayısı, inceleyen kimliği, listede `submittedAt`. Güvenlik açığı belge ve karar yolunda bu analizde görülmedi.
 
 ## 8. Emlakçı yönetimi
+
+Bu bölüm FAZ 3.1 analiz anını kaydeder. Güncel sözleşme aşağıdaki FAZ 3.4.1 notu ve `docs/frontend-integration.md` içindeki Agents bölümüdür.
+
+### FAZ 3.4.1 güncel sözleşme
+
+Admin emlakçı listesi, detayı, private logosu, gerekçeli durum değişikliği ve `GET /api/v1/admin/agents/summary` hazırdır. `User.isActive` ile `AgentProfile.isActive` ayrıdır. Profil askısı `tokenVersion` artırmaz. Portföy sayaçları yalnız profesyonel ilanları kapsar. `publiclyVisible` kayıtlı `ACTIVE` sayısından ayrıdır. Onaylı başvuruya FK eklenmedi; detay filtrelenmiş liste yolunu verir. Şehir dağılımı kayıtlı şehir metnidir. Ekran redesign'ı FAZ 3.4.2'dir. Mevcut detayda yalnız gerekçe alanı ve private logo blob'u bağlandı.
+
+**FAZ 3.4.1 kapanış doğrulaması (2026-11-26):** 15 unit suite / 56 test, 9 E2E suite / 82 test (`--runInBand`, `admin-agents.e2e-spec.ts` 11 test dahil), API/Web typecheck-lint-build, `pg` üzerinden ölçülen SQL sorgu sayıları (`listForAdmin`: sabit 5, `getForAdmin`: 9, `summary`: 4 / zaman serili 5), güncel Docker API imajı (`emlak-site-api-1` SHA-256 uyumlu), canlı API smoke (`list`, `summary`, zaman serisi, `detail`, private logo binary/401/403/404, gerekçeli askıya alma/aktivasyon, no-op, audit) ve canlı tarayıcı doğrulaması (`/admin/emlakcilar/:id` gerekçe validasyonu, durum değişimi, aktif ve askıda private logo render, logosuz placeholder) tamamlanmıştır (`FAZ 3.4.1 = COMPLETE`, `FAZ 3.4.2 = READY`).
 
 ### Liste
 
@@ -838,7 +850,7 @@ FAZ 3.4'te yeniden kullanılabilecek parçalar: `MetricCard`, `DonutChart`, `Reg
 
 FAZ 3.3.1 backend sözleşmesi: `GET /admin/agent-applications/summary` durum sayaçlarını (`statuses.DRAFT|PENDING|APPROVED|REJECTED`) ve `created` oluşturulma serisini verir. Aralık verilmezse `created` null'dur ve sayaçlar bütün kayıtların güncel durumudur. Satırdaki `documentCompletion` zorunlu iki belge türünü sayar. Süreç şeması `createdAt`, `submittedAt`, `reviewedAt`, `status` ve `rejectionReason` ile kurulur; yeni status yoktur. `agentProfile` yalnız onaylı başvurunun gerçek profilidir.
 
-FAZ 3.4 — Emlakçılar: firma logoları, portföy sayaçları, aktif/askı dağılımı, ilan durum grafikleri. Admin private logo bu fazdadır.
+FAZ 3.4.1 sözleşme ve doğrulaması tamamlanmıştır (`FAZ 3.4.1 = COMPLETE`, `FAZ 3.4.2 = READY`): private logo, portföy sayaçları, profil/hesap kırılımı, profesyonel ilan dağılımı, yeni profil zaman serisi, çok kelimeli ad/soyad araması, `User.isActive` / `AgentProfile.isActive` concurrency kilidi ve canlı API + tarayıcı smoke doğrulandı. FAZ 3.4.2 bu veriyle emlakçı ekranını kurar. Genel ekran redesign'ı 3.4.1'de yapılmadı.
 
 FAZ 3.5 — İlan Yönetimi: emlakçı panelindeki İlanlarım düzenine yakın görsel liste. Desktop'ta solda yaklaşık 140×100 px gerçek ilan kapağı. Mobilde görsel üstte. Görseli olmayan ilan için placeholder. Public olmayan ilanlar için güvenli admin private görsel erişimi. İlan ve moderasyon durumları ayrı gösterilir.
 

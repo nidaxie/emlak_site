@@ -659,7 +659,7 @@ describe('Properties (e2e)', () => {
     const suspended = await http()
       .patch(`/api/v1/admin/agents/${agent.profileId}/status`)
       .set('Authorization', `Bearer ${admin.token}`)
-      .send({ isActive: false });
+      .send({ isActive: false, reason: 'Yonetim gerekcesi' });
     const profile = await http()
       .get('/api/v1/agents/me')
       .set('Authorization', `Bearer ${agent.token}`);
@@ -715,7 +715,7 @@ describe('Properties (e2e)', () => {
     const restored = await http()
       .patch(`/api/v1/admin/agents/${agent.profileId}/status`)
       .set('Authorization', `Bearer ${admin.token}`)
-      .send({ isActive: true });
+      .send({ isActive: true, reason: 'Yonetim gerekcesi' });
     const updated = await http()
       .patch(`/api/v1/properties/${id}`)
       .set('Authorization', `Bearer ${agent.token}`)
@@ -818,7 +818,7 @@ describe('Properties (e2e)', () => {
     const suspended = await http()
       .patch(`/api/v1/admin/agents/${owner.profileId}/status`)
       .set('Authorization', `Bearer ${admin.token}`)
-      .send({ isActive: false });
+      .send({ isActive: false, reason: 'Yonetim gerekcesi' });
     const ownedWhileSuspended = await http()
       .get(`/api/v1/agents/me/files/${fileId}`)
       .set('Authorization', `Bearer ${owner.token}`);
@@ -833,7 +833,7 @@ describe('Properties (e2e)', () => {
     const restored = await http()
       .patch(`/api/v1/admin/agents/${owner.profileId}/status`)
       .set('Authorization', `Bearer ${admin.token}`)
-      .send({ isActive: true });
+      .send({ isActive: true, reason: 'Yonetim gerekcesi' });
 
     expect(uploaded.status).toBe(201);
     expect(publicUrl).toMatch(/^\/api\/v1\/files\//);

@@ -1146,7 +1146,7 @@ describe('Agent applications and profiles (e2e)', () => {
     const hidden = await http()
       .patch(`/api/v1/admin/agents/${firstProfile.id}/status`)
       .set('Authorization', `Bearer ${admin.token}`)
-      .send({ isActive: false });
+      .send({ isActive: false, reason: 'Yonetim gerekcesi' });
     const hiddenPublic = await http().get(
       `/api/v1/agents/${firstProfile.slug}`,
     );
